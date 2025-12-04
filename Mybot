@@ -1,0 +1,1725 @@
+# -*- coding: utf-8 -*-
+import logging
+import sqlite3
+import random
+import asyncio
+import requests
+import time
+import string
+import html
+from datetime import datetime, timedelta
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, LabeledPrice, ChatMember
+from telegram.constants import ParseMode
+from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, CallbackQueryHandler, ConversationHandler, MessageHandler, filters, PreCheckoutQueryHandler
+
+# --- AYARLAR ---
+TOKEN = "8551337998:AAGxTXEIz6JCEB-ggLsJyOXnm0Gu1jxm7JI"
+PAYMENT_PROVIDER_TOKEN = "" # Stars kullanıyorsanız boş, yoksa provider token
+ADMIN_ID = 5961747564
+DB_FILE = "AslaDegiştirme.db"
+PROOF_CHANNEL_ID = -1002664871006
+REQUIRED_CHANNEL = "@OtzywGroup"
+
+# HAPP API URL
+HAPP_API_URL = "https://crypto.happ.su/api.php"
+
+# Panel Bilgileri (Varsayılan)
+DEFAULT_MARZBAN_URL = "https://thekeybox2.fun:8000"
+DEFAULT_MARZBAN_USER = "R"
+DEFAULT_MARZBAN_PASS = "ex"
+
+# Sabitler
+START_BALANCE = 5
+ADMIN_START_BALANCE = 1000
+MIN_WITHDRAW = 50
+REF_REWARD = 1.0
+MIN_DEPOSIT = 1
+
+# Global Değişken (Bakım Modu için)
+MAINTENANCE_MODE = False
+
+# Durumlar (States)
+(MENU, GAME_SELECTION, BET_SELECTION, CUSTOM_BET, MINES_LOOP, ROULETTE_SELECTION, 
+ RPS_SELECTION, BALLOON_LOOP, SUPPORT_USER, SUPPORT_ADMIN, WITHDRAW_METHOD, 
+ WITHDRAW_AMT, WITHDRAW_NUM, DEPOSIT_AMT_INPUT, CAPTCHA, CHANNEL_CHECK_WAIT, 
+ ADMIN_PANEL, ADMIN_ID_INPUT, ADMIN_AMT_INPUT, ADMIN_BROADCAST, ADMIN_MSG_ID_INPUT, 
+ ADMIN_MSG_TEXT_INPUT, ADMIN_BAN_INPUT, ADMIN_UNBAN_INPUT, ADMIN_SET_URL, 
+ ADMIN_SET_USER, ADMIN_SET_PASS, ADMIN_QUERY_ID, ADMIN_WAIT_PROOF, ADMIN_ADD_SUPPORT, 
+ ADMIN_REM_SUPPORT, ADMIN_RESET_USER_INPUT, ADMIN_SET_REF_ID, ADMIN_SET_REF_COUNT,
+ ADMIN_RESET_LIMIT_ID, ADMIN_SET_CONTEST_ID, ADMIN_SET_CONTEST_COUNT,
+ ADMIN_SET_WITHDRAW_TEXT_INPUT) = range(38) # Yeni stateler eklendi
+
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+
+# --- EMOJI KODLARI ---
+E_SLOT = "\U0001F3B0"
+E_USER = "\U0001F464"
+E_STAR = "\u2B50"
+E_GLOW_STAR = "\U0001F31F"
+E_GAME = "\U0001F3AE"
+E_GLOBE = "\U0001F310"
+E_FOLDER = "\U0001F4C2"
+E_TROPHY = "\U0001F3C6"
+E_MONEY = "\U0001F4B0"
+E_CREDIT = "\U0001F4B3"
+E_FLY_MONEY = "\U0001F4B8"
+E_PHONE = "\U0001F4DE"
+E_GEAR = "\u2699\uFE0F"
+E_PACKAGE = "\U0001F4E6"
+E_CHART = "\U0001F4CA"
+E_HOURGLASS = "\u23F3"
+E_GREEN_C = "\U0001F7E2"
+E_CALENDAR = "\U0001F4C5"
+E_LINK = "\U0001F517"
+E_ROCKET = "\U0001F680"
+E_FREE = "\U0001F193"
+E_GEM = "\U0001F48E"
+E_FIRE = "\U0001F525"
+E_CROWN = "\U0001F451"
+E_BOMB = "\U0001F4A3"
+E_DICE = "\U0001F3B2"
+E_BACK = "\U0001F519"
+E_PENCIL = "\u270F\uFE0F"
+E_ID = "\U0001F194"
+E_GIFT = "\U0001F381"
+E_BANK = "\U0001F3E6"
+E_MOBILE = "\U0001F4F1"
+E_CHECK = "\u2705"
+E_CROSS = "\u274C"
+E_PLUS = "\u2795"
+E_BELL = "\U0001F514"
+E_WRITE = "\u270D\uFE0F"
+E_HOME = "\U0001F3E0"
+E_WHITE_SQ = "\u2B1C"
+E_BLUE_D = "\U0001F539"
+E_BOOM = "\U0001F4A5"
+E_SKULL = "\U0001F480"
+E_REFRESH = "\U0001F504"
+E_LOUD = "\U0001F4E2"
+E_MAIL = "\U0001F4E9"
+E_BAN = "\U0001F6AB"
+E_ROBOT = "\U0001F916"
+E_REPLY = "\u21A9\uFE0F"
+E_WARN = "\u26A0\uFE0F"
+E_SEARCH = "\U0001F50D"
+E_BASKET = "\U0001F3C0"
+E_BOWLING = "\U0001F3B3"
+E_DART = "\U0001F3AF"
+E_FOOTBALL = "\u26BD"
+E_MOON = "\U0001F311"
+E_SUN = "\U0001F31D"
+E_SUPPORT = "\U0001F468\u200D\U0001F4BB"
+E_MAINTENANCE = "\U0001F6A7"
+E_LOCK = "\U0001F512"
+
+# --- Rulet Sticker & Renk Listesi ---
+ROULETTE_STICKERS = [
+    "CAACAgIAAxkBAAKSKGkurVhPBRE1q21AN8_yRyIewOj3AAJnYwACwcVgS5SSniCnTh-5NgQ", 
+    "CAACAgIAAxkBAAKSKmkurWFogTE8DTu6NMHWh39DnycBAALjZgACYEhhS80kfVtiSBYyNgQ", 
+    "CAACAgIAAxkBAAKSLGkurWZb3O-8SEwzHlx0_sOSX691AAIYbAACLOJZS7HqoVmk8Ap1NgQ",
+    "CAACAgIAAxkBAAKSLmkurWcXA2-w8FnBIJws6FvFM1UAA0NiAAILsGFLO9KwS32CJmg2BA",
+    "CAACAgIAAxkBAAKSMGkurWgedYDYfyx1lPjPnqHdtzuWAALYZwACFBZhS6882ipYt9eyNgQ",
+    "CAACAgIAAxkBAAKSMmkurWgk1OQ20iuttx-ZBhKDSKe8AAK3aAACN1JhS8Xg8ufJgA6TNgQ",
+    "CAACAgIAAxkBAAKSNGkurWnDP784sMOdLT2sQmkuwf-rAAJgXQACufdgS-CNhfvzRJqeNgQ",
+    "CAACAgIAAxkBAAKSNmkurWrDtQYBj0LS4oWlzWlBypf0AAJIXQAC5z5gSysbX4dNpaXbNgQ",
+    "CAACAgIAAxkBAAKSOGkurWwT5SeSH9nVXm4xuhWZoKAQAAJMXQACQ-hgSzW33g-iHQWbNgQ",
+    "CAACAgIAAxkBAAKSOmkurW2I7SQPxTC5ocKfz00ZYHxyAAJ6ZAACuF5hS-xNRqrTLD7WNgQ",
+    "CAACAgIAAxkBAAKSPGkurW3GJakv8WhttaDT6SWmuHc_AAJ3YgACfjlgS9MgEaw7n9yVNgQ",
+    "CAACAgIAAxkBAAKSPmkurW6Y7atHjDcCM1auW-Fg_G0VAAKAZgACDNJhSx80rbLvo79BNgQ",
+    "CAACAgIAAxkBAAKSQGkurW-o4_Gsqzksdjisadt7bN9JAALLZQAC0w1hS2-os8oSagHuNgQ",
+    "CAACAgIAAxkBAAKSQmkurXAhRp94ArBUBREjU9DxFSwmAAJUWQACll9hSy--41wMr4n1NgQ",
+    "CAACAgIAAxkBAAKSRGkurXF1V9XImC3-qQoW5CqQaeqXAAI2ZAAC-VNgS-QzL9Eoni1cNgQ",
+    "CAACAgIAAxkBAAKSRmkurXLsxwepLCRtMOxRI1TqEjVfAAJ7YAACQQRhS4t6Xhw7yDxCNgQ",
+    "CAACAgIAAxkBAAKSSGkurXM_XYoTjd88GkF9kzQcL4s9AAKBXwACFWxhS1eBomRbMtIwNgQ",
+    "CAACAgIAAxkBAAKSSmkurXTXwxPtZ2IYJvnmprMxUvqIAAJ8YwAC_u9gSyw-3FQo0JkkNgQ",
+    "CAACAgIAAxkBAAKSTGkurXSLenNDKSNPSYa88dFQJsG4AALzXAACl8NhS2GXz_UnKU3INgQ",
+    "CAACAgIAAxkBAAKSTmkurXV8numgzpCLIYn3NCXRUVIyAAKWWgACJAFgS-wGxe8vsLUBNgQ",
+    "CAACAgIAAxkBAAKSUGkurXeyPPphrgjs57nsr1ZP3EESAAKZYQACL5thS-WZ8BLOctu4NgQ",
+    "CAACAgIAAxkBAAKSUmkurXdTzL3XUz3ESubSKLRD5bbVAAK7ZAACRBxhS5Q-9haBtCOpNgQ",
+    "CAACAgIAAxkBAAKSVGkurXhlxcqbrhKx3vzIqpHi3GyjAAJ4XQACt1dhS9tDK35wpJD_NgQ",
+    "CAACAgIAAxkBAAKSVmkurXkh1mvVTyL0x2YHjFSnNHIzAALhWwACP4FgSz5xBjwwIU7bNgQ",
+    "CAACAgIAAxkBAAKSWGkurXqdxdJoBBotNnQMBOXKausKAAI0YwACgL5hS6gmLhncB4gKNgQ",
+    "CAACAgIAAxkBAAKSWmkurXuSZLlSvoqMcd0T25FaszXCAAJcZgACzxxgS2Ijie6hnGlDNgQ",
+    "CAACAgIAAxkBAAKSXGkurXv2pbXaVQABgCIlocNZzlawRwACCmcAAnvXYUux4hhZ88_6OjYE",
+    "CAACAgIAAxkBAAKSXmkurXxQqq85PTc5M17mV15lBoWKAAJUZwACgWxhS7T5OPylaCUONgQ",
+    "CAACAgIAAxkBAAKSYGkurX4fd0a68luWcGMazE66Q7OIAAKJYgACqTtgS5g1GjMGlkXrNgQ",
+    "CAACAgIAAxkBAAKSYmkurX_dU8UJ6zCLjw4d24Bhooy4AAIfYAACnVBhSxnbzisL71zqNgQ",
+    "CAACAgIAAxkBAAKSZGkurX8sgL7fGS31Ix6zKAP9yiP7AAIMXQACQuBgS8cFR-3B1bQoNgQ",
+    "CAACAgIAAxkBAAKSZmkurYCXvMe850lYSIHkZkDbqNB5AALqXgACiKJgS0UWH9k6mOlXNgQ",
+    "CAACAgIAAxkBAAKSaGkurYK10cdh1GzzoKJAGPnn8ax5AALpVgACAmRgS42noinb72YjNgQ",
+    "CAACAgIAAxkBAAKSamkurYKDNT_P7_q637nfgVD51_OkAAKqXAACgfNgS65tufv_DYkONgQ",
+    "CAACAgIAAxkBAAKSbGkurYSpkyXZCqF73tXjMbo8FyubAAILZAACrAdhS7Nm-tuNsmGLNgQ",
+    "CAACAgIAAxkBAAKSbmkurYVvShyyG8w9yoI5OpGblFIhAAJBZQACC99gS2VApSaRtXuVNgQ",
+    "CAACAgIAAxkBAAKScGkurYbW-i0HKSjq6ydbpgeXs-wuAAISWAAC-HxgS6aXjmRIh32pNgQ"
+] 
+RED_NUMBERS = {1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36}
+
+# --- VERİTABANI ---
+def init_db():
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.execute('''CREATE TABLE IF NOT EXISTS users 
+                        (user_id INTEGER PRIMARY KEY, name TEXT, balance REAL, 
+                        wins INTEGER DEFAULT 0, losses INTEGER DEFAULT 0, 
+                        invited INTEGER DEFAULT 0, total_earned REAL DEFAULT 0, 
+                        last_free_claim INTEGER DEFAULT 0, is_banned INTEGER DEFAULT 0,
+                        total_withdrawn REAL DEFAULT 0,
+                        contest_invites INTEGER DEFAULT 0)''')
+        conn.execute('''CREATE TABLE IF NOT EXISTS subscriptions 
+                        (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, 
+                        package_name TEXT, happ_link TEXT, expire_date INTEGER, 
+                        marzban_username TEXT, gb_limit INTEGER, notified INTEGER DEFAULT 0,
+                        created_at INTEGER)''')
+        # settings tablosuna withdraw_info_text eklendi
+        conn.execute('''CREATE TABLE IF NOT EXISTS settings 
+                        (id INTEGER PRIMARY KEY, panel_url TEXT, panel_user TEXT, 
+                        panel_pass TEXT, exchange_text TEXT, withdraw_info_text TEXT)''')
+        conn.execute('''CREATE TABLE IF NOT EXISTS support_admins (user_id INTEGER PRIMARY KEY)''')
+        
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM settings WHERE id=1")
+        if not cur.fetchone():
+            default_wd_text = "ℹ️ <b>Döviz Kuru:</b>\n• 50 HappStar = 10 TMT\n• 50 HappStar = 25 Telegram Star"
+            conn.execute("INSERT INTO settings (id, panel_url, panel_user, panel_pass, exchange_text, withdraw_info_text) VALUES (1, ?, ?, ?, ?, ?)", 
+                         (DEFAULT_MARZBAN_URL, DEFAULT_MARZBAN_USER, DEFAULT_MARZBAN_PASS, "50 happ star✨ = 25🌟", default_wd_text))
+        
+        # Sütun güncellemeleri
+        try: conn.execute("ALTER TABLE users ADD COLUMN total_withdrawn REAL DEFAULT 0")
+        except: pass
+        try: conn.execute("ALTER TABLE users ADD COLUMN last_free_claim INTEGER DEFAULT 0")
+        except: pass
+        try: conn.execute("ALTER TABLE users ADD COLUMN invited INTEGER DEFAULT 0")
+        except: pass
+        try: conn.execute("ALTER TABLE users ADD COLUMN contest_invites INTEGER DEFAULT 0")
+        except: pass
+        try: conn.execute("ALTER TABLE settings ADD COLUMN withdraw_info_text TEXT")
+        except: pass
+        
+        conn.execute("UPDATE users SET invited = 0 WHERE invited IS NULL")
+        conn.execute("UPDATE users SET contest_invites = 0 WHERE contest_invites IS NULL")
+
+def get_withdraw_text_from_db():
+    with sqlite3.connect(DB_FILE) as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT withdraw_info_text FROM settings WHERE id=1")
+        row = cur.fetchone()
+        if row and row[0]:
+            return row[0]
+    return "ℹ️ <b>Döviz Kuru:</b>\n• 50 HappStar = 10 TMT\n• 50 HappStar = 25 Telegram Star"
+
+def update_withdraw_text_db(new_text):
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.execute("UPDATE settings SET withdraw_info_text = ? WHERE id=1", (new_text,))
+
+def get_user(uid, name="Oyuncu"):
+    is_new_user = False
+    with sqlite3.connect(DB_FILE) as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM users WHERE user_id=?", (uid,))
+        u = cur.fetchone()
+        if not u:
+            create_user(uid, name)
+            is_new_user = True
+            cur.execute("SELECT * FROM users WHERE user_id=?", (uid,))
+            u = cur.fetchone()
+        
+        if not u: return None, True
+        
+        if name and name != "Oyuncu" and u[1] != name:
+            conn.execute("UPDATE users SET name=? WHERE user_id=?", (name, uid))
+            
+        cols = [description[0] for description in cur.description]
+        row = dict(zip(cols, u))
+        return row, is_new_user
+
+def create_user(uid, name):
+    with sqlite3.connect(DB_FILE) as conn:
+        initial_bal = ADMIN_START_BALANCE if uid == ADMIN_ID else START_BALANCE
+        conn.execute("INSERT OR IGNORE INTO users (user_id, name, balance, total_earned, last_free_claim, is_banned, wins, losses, invited, total_withdrawn, contest_invites) VALUES (?, ?, ?, ?, 0, 0, 0, 0, 0, 0, 0)", (uid, name, initial_bal, 0))
+
+def delete_user_fully(uid):
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.execute("DELETE FROM users WHERE user_id=?", (uid,))
+        conn.execute("DELETE FROM subscriptions WHERE user_id=?", (uid,))
+
+def set_ban_status(uid, status):
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.execute("UPDATE users SET is_banned = ? WHERE user_id=?", (status, uid))
+
+def add_support_admin(uid):
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.execute("INSERT OR IGNORE INTO support_admins (user_id) VALUES (?)", (uid,))
+
+def remove_support_admin(uid):
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.execute("DELETE FROM support_admins WHERE user_id=?", (uid,))
+
+def get_support_admins():
+    with sqlite3.connect(DB_FILE) as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT user_id FROM support_admins")
+        return [x[0] for x in cur.fetchall()]
+
+def add_subscription(uid, pkg_name, link, expire_ts, m_username, gb_lim):
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.execute("INSERT INTO subscriptions (user_id, package_name, happ_link, expire_date, marzban_username, gb_limit, notified, created_at) VALUES (?, ?, ?, ?, ?, ?, 0, ?)", (uid, pkg_name, link, expire_ts, m_username, gb_lim, int(time.time())))
+
+def delete_subscription(sub_id):
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.execute("DELETE FROM subscriptions WHERE id=?", (sub_id,))
+
+def get_user_subscriptions(uid):
+    with sqlite3.connect(DB_FILE) as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT id, package_name, gb_limit, marzban_username FROM subscriptions WHERE user_id=? ORDER BY id DESC", (uid,))
+        return cur.fetchall()
+
+def get_subscription_detail(sub_id):
+    with sqlite3.connect(DB_FILE) as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT package_name, happ_link, expire_date, gb_limit, marzban_username, created_at FROM subscriptions WHERE id=?", (sub_id,))
+        return cur.fetchone()
+
+def get_active_subs_for_check():
+    with sqlite3.connect(DB_FILE) as conn:
+        cur = conn.cursor()
+        now = int(time.time())
+        cur.execute("SELECT id, user_id, marzban_username, gb_limit FROM subscriptions WHERE expire_date > ? AND notified = 0", (now,))
+        return cur.fetchall()
+
+def mark_sub_notified(sub_id):
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.execute("UPDATE subscriptions SET notified = 1 WHERE id=?", (sub_id,))
+
+def update_bal(uid, amt, is_win=False):
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.execute("UPDATE users SET balance = balance + ? WHERE user_id=?", (amt, uid))
+        if is_win:
+            conn.execute("UPDATE users SET total_earned = total_earned + ? WHERE user_id=?", (amt, uid))
+
+def update_withdrawn(uid, amt):
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.execute("UPDATE users SET total_withdrawn = total_withdrawn + ? WHERE user_id=?", (amt, uid))
+
+def update_game_stats(uid, result):
+    with sqlite3.connect(DB_FILE) as conn:
+        if result == 'win':
+            conn.execute("UPDATE users SET wins = wins + 1 WHERE user_id=?", (uid,))
+        elif result == 'loss':
+            conn.execute("UPDATE users SET losses = losses + 1 WHERE user_id=?", (uid,))
+
+def update_free_claim(uid):
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.execute("UPDATE users SET last_free_claim = ? WHERE user_id=?", (int(time.time()), uid))
+
+def reset_user_free_claim(uid):
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.execute("UPDATE users SET last_free_claim = 0 WHERE user_id=?", (uid,))
+
+def reset_all_free_claims():
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.execute("UPDATE users SET last_free_claim = 0")
+
+def add_ref(ref_id):
+    # HEM GENEL SAYACI HEM YARIŞMA SAYACINI ARTIRIR
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.execute("""UPDATE users 
+                        SET balance = balance + ?, 
+                            invited = COALESCE(invited, 0) + 1,
+                            contest_invites = COALESCE(contest_invites, 0) + 1 
+                        WHERE user_id=?""", (REF_REWARD, ref_id))
+
+def admin_set_user_invites(target_id, count):
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.execute("UPDATE users SET invited = ? WHERE user_id=?", (count, target_id))
+
+def admin_set_contest_invites(target_id, count):
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.execute("UPDATE users SET contest_invites = ? WHERE user_id=?", (count, target_id))
+
+def get_top10_winners():
+    with sqlite3.connect(DB_FILE) as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT user_id, name, total_earned FROM users WHERE user_id != ? AND total_earned > 0 ORDER BY total_earned DESC LIMIT 10", (ADMIN_ID,))
+        return cur.fetchall()
+
+def get_top10_richest():
+    with sqlite3.connect(DB_FILE) as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT user_id, name, balance FROM users WHERE user_id != ? ORDER BY balance DESC LIMIT 10", (ADMIN_ID,))
+        return cur.fetchall()
+
+def get_top10_refs():
+    with sqlite3.connect(DB_FILE) as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT user_id, name, invited FROM users WHERE user_id != ? AND invited > 0 ORDER BY invited DESC LIMIT 10", (ADMIN_ID,))
+        return cur.fetchall()
+
+def get_top10_contest_refs():
+    with sqlite3.connect(DB_FILE) as conn:
+        cur = conn.cursor()
+        # contest_invites > 0 şartı var. Eğer kimse ref yapmadıysa boş döner.
+        cur.execute("SELECT user_id, name, contest_invites FROM users WHERE user_id != ? AND contest_invites > 0 ORDER BY contest_invites DESC LIMIT 10", (ADMIN_ID,))
+        return cur.fetchall()
+
+def reset_contest_stats():
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.execute("UPDATE users SET contest_invites = 0")
+
+def is_user_in_top10(uid):
+    top10 = get_top10_winners()
+    if not top10: return False
+    for row in top10:
+        if row[0] == uid: return True
+    return False
+
+def get_stats():
+    with sqlite3.connect(DB_FILE) as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*), SUM(balance) FROM users")
+        user_count, total_bal = cur.fetchone()
+        cur.execute("SELECT COUNT(*) FROM subscriptions")
+        total_subs = cur.fetchone()[0]
+        now = int(time.time())
+        cur.execute("SELECT COUNT(*) FROM subscriptions WHERE expire_date > ?", (now,))
+        active_subs = cur.fetchone()[0]
+        return user_count, total_bal, total_subs, active_subs
+
+def get_all_users():
+    with sqlite3.connect(DB_FILE) as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT user_id FROM users")
+        return [x[0] for x in cur.fetchall()]
+
+# --- PANEL AYARLARI ---
+def get_panel_settings():
+    with sqlite3.connect(DB_FILE) as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT panel_url, panel_user, panel_pass, exchange_text FROM settings WHERE id=1")
+        row = cur.fetchone()
+        if row:
+            url = row[0].replace("/dashboard", "").rstrip("/")
+            exch = row[3] if len(row) > 3 and row[3] else "50 happ star✨ = 25🌟"
+            return url, row[1], row[2], exch
+    return DEFAULT_MARZBAN_URL, DEFAULT_MARZBAN_USER, DEFAULT_MARZBAN_PASS, "50 happ star✨ = 25🌟"
+
+def update_panel_settings(url, user, password):
+    with sqlite3.connect(DB_FILE) as conn:
+        clean_url = url.replace("/dashboard", "").rstrip("/")
+        conn.execute("UPDATE settings SET panel_url=?, panel_user=?, panel_pass=? WHERE id=1", (clean_url, user, password))
+
+# --- HAPP API & MARZBAN ---
+def encrypt_with_happ_api(target_url):
+    try:
+        headers = {"Content-Type": "application/json"}
+        payload = {"url": target_url}
+        response = requests.post(HAPP_API_URL, json=payload, headers=headers, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            if "encrypted_link" in data:
+                raw_code = data["encrypted_link"]
+                if not raw_code.startswith("happ://"):
+                    return f"happ://{raw_code}"
+                return raw_code
+            else:
+                return None
+        else:
+            return None
+    except Exception as e:
+        print(f"Happ API Error: {e}")
+        return None
+
+def get_marzban_token():
+    try:
+        url, user, password, _ = get_panel_settings()
+        login_url = f"{url}/api/admin/token"
+        login_data = {"username": user, "password": password}
+        r = requests.post(login_url, data=login_data, timeout=5)
+        if r.status_code == 200:
+            return r.json().get("access_token")
+    except Exception as e:
+        print(f"Token hatası: {e}")
+    return None
+
+def create_vpn_user(gb_limit, days_limit, package_name, tg_username):
+    try:
+        token = get_marzban_token()
+        url, _, _, _ = get_panel_settings()
+        if not token:
+            return False, "Panel Login Hatası! Admin ile görüşün.", 0, "", ""
+        
+        clean_user = "".join(c for c in tg_username if c.isalnum()) if tg_username else "User"
+        rand_suffix = "".join(random.choices(string.digits, k=4))
+        final_username = f"BOT-{package_name}-{clean_user}{rand_suffix}"
+        
+        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+        
+        expire_timestamp = 0
+        if days_limit > 0:
+            expire_date = datetime.utcnow() + timedelta(days=int(days_limit))
+            expire_timestamp = int(expire_date.timestamp())
+        
+        data_bytes = gb_limit * 1024 * 1024 * 1024 if gb_limit > 0 else 0
+        
+        payload = {
+            "username": final_username,
+            "proxies": {"shadowsocks": {"method": "chacha20-ietf-poly1305"}},
+            "inbounds": {},
+            "expire": expire_timestamp,
+            "data_limit": int(data_bytes) if data_bytes > 0 else 0,
+            "data_limit_reset_strategy": "no_reset"
+        }
+        
+        create_url = f"{url}/api/user"
+        r2 = requests.post(create_url, json=payload, headers=headers)
+        
+        if r2.status_code == 200:
+            user_data = r2.json()
+            try:
+                r_get = requests.get(f"{url}/api/user/{final_username}", headers=headers)
+                if r_get.status_code == 200:
+                    user_data = r_get.json()
+            except: pass
+            
+            sub_link = user_data.get("subscription_url", "")
+            if sub_link and sub_link.startswith("/"):
+                sub_link = f"{url}{sub_link}"
+            
+            final_happ_link = ""
+            if sub_link:
+                happ_link = encrypt_with_happ_api(sub_link)
+                if happ_link:
+                    final_happ_link = happ_link
+                else:
+                    final_happ_link = sub_link
+            else:
+                links = user_data.get("links", [])
+                if links:
+                    final_happ_link = links[0]
+                else:
+                    final_happ_link = "⚠️ Link oluşturulamadı."
+            
+            return True, "", expire_timestamp, final_happ_link, final_username
+        else:
+            return False, f"Oluşturma Hatası: {r2.text}", 0, "", ""
+    except Exception as e:
+        return False, f"API Hatası: {str(e)}", 0, "", ""
+
+def delete_vpn_user_api(username):
+    try:
+        token = get_marzban_token()
+        url, _, _, _ = get_panel_settings()
+        if not token: return False
+        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+        r = requests.delete(f"{url}/api/user/{username}", headers=headers, timeout=10)
+        if r.status_code == 200: return True
+        return False
+    except Exception as e:
+        print(f"Silme hatası: {e}")
+        return False
+
+async def check_data_usage(context: ContextTypes.DEFAULT_TYPE):
+    try:
+        subs = get_active_subs_for_check()
+        if not subs: return
+        token = get_marzban_token()
+        if not token: return
+        url, _, _, _ = get_panel_settings()
+        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+        
+        for sub_id, user_id, m_username, gb_limit in subs:
+            try:
+                r = requests.get(f"{url}/api/user/{m_username}", headers=headers, timeout=5)
+                if r.status_code == 200:
+                    u_data = r.json()
+                    used = u_data.get("used_traffic", 0)
+                    limit = u_data.get("data_limit", 0)
+                    if limit > 0 and used >= limit:
+                        try:
+                            msg = (f"{E_WARN} <b>KOTA DOLDU BİLDİRİMİ</b>\n\n"
+                                   f"<blockquote>Sahip olduğunuz <b>{gb_limit}GB</b> paketinin kotası dolmuştur.\n"
+                                   f"Hizmetiniz otomatik olarak durduruldu.</blockquote>")
+                            await context.bot.send_message(user_id, msg, parse_mode=ParseMode.HTML)
+                        except: pass
+                        mark_sub_notified(sub_id)
+            except: continue
+    except: pass
+
+# --- OYUN DEĞİŞKENLERİ ---
+active_games = {}
+MULTIPLIERS = [1.0, 1.25, 1.50, 1.80, 2.20, 2.70, 3.50, 4.50, 6.00, 8.00, 12.0, 20.0, 50.0]
+
+# --- HELPER FUNCS ---
+def get_mines_board(g, reveal=False, bet_amt=0):
+    kb = []
+    for r in range(4):
+        row = []
+        for c in range(4):
+            idx = r*4+c
+            is_bomb = g["cells"][idx]
+            is_open = g["revealed"][idx]
+            txt = E_WHITE_SQ
+            cb = f"mine_{idx}"
+            
+            if reveal:
+                txt = E_BOMB if is_bomb else (E_GEM if is_open else E_BLUE_D)
+                cb = "ignore"
+            elif is_open:
+                txt = E_GEM; cb = "ignore"
+            
+            row.append(InlineKeyboardButton(txt, callback_data=cb))
+        kb.append(row)
+    
+    if reveal:
+        kb.append([InlineKeyboardButton(f"{E_REFRESH} Tekrar Oyna", callback_data=f"bet_{int(bet_amt)}"), 
+                   InlineKeyboardButton(f"{E_HOME} Ana Menü", callback_data="back_start")])
+    elif not reveal and g["step"] > 0:
+        prize = round(g["bet"] * MULTIPLIERS[g["step"]], 2)
+        kb.append([InlineKeyboardButton(f"{E_MONEY} {prize} AL", callback_data="cashout")])
+        
+    return InlineKeyboardMarkup(kb)
+
+def get_balloon_board(current_mult, is_boom=False, bet_amt=0):
+    if is_boom:
+        return InlineKeyboardMarkup([[InlineKeyboardButton(f"{E_REFRESH} Tekrar Dene", callback_data=f"bet_{int(bet_amt)}"), InlineKeyboardButton(f"{E_HOME} Ana Menü", callback_data="back_start")]])
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(f"🎈 Şişir (+0.10x)", callback_data="balloon_inflate")],
+        [InlineKeyboardButton(f"💰 {bet_amt * current_mult:.2f} AL", callback_data="balloon_cashout")]
+    ])
+
+# --- MENÜLER ---
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if MAINTENANCE_MODE and update.effective_user.id != ADMIN_ID:
+        await update.message.reply_text(f"{E_MAINTENANCE} <b>BAKIM MODU</b>\n\nSistem şu anda bakım aşamasındadır. Lütfen daha sonra tekrar deneyiniz.", parse_mode=ParseMode.HTML)
+        return ConversationHandler.END
+
+    user = update.effective_user
+    args = context.args
+    u_data, is_new = get_user(user.id, user.first_name)
+    if u_data is None: 
+        u_data = {"name": user.first_name, "balance": START_BALANCE, "is_banned": 0}
+        
+    if u_data.get('is_banned', 0) == 1:
+        await update.message.reply_text(f"{E_BAN} <b>Hesabınız engellenmiştir.</b>", parse_mode=ParseMode.HTML)
+        return ConversationHandler.END
+
+    if is_new and args and args[0].startswith("ref_"):
+        try:
+            ref_id = int(args[0].split("_")[1])
+            if ref_id != user.id:
+                n1, n2 = random.randint(1, 10), random.randint(1, 10)
+                context.user_data['captcha_res'] = n1 + n2
+                context.user_data['pending_ref'] = ref_id
+                await update.message.reply_text(f"{E_ROBOT} <b>DOĞRULAMA GEREKLİ</b>\n\nReferans ile geldiğiniz için lütfen işlemi çözün:\n<code>{n1} + {n2} = ?</code>", parse_mode=ParseMode.HTML)
+                return CAPTCHA
+        except: pass
+
+    return await check_channel_subscription(update, context)
+
+async def captcha_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        user_ans = int(update.message.text)
+        if user_ans == context.user_data.get('captcha_res'):
+            await update.message.reply_text(f"{E_CHECK} <b>Doğru!</b> Kanal kontrolü yapılıyor...", parse_mode=ParseMode.HTML)
+            return await check_channel_subscription(update, context)
+        else:
+            await update.message.reply_text("❌ <b>Yanlış cevap!</b> Lütfen işlemi tekrar hesaplayıp yazın.", parse_mode=ParseMode.HTML)
+            return CAPTCHA
+    except:
+        await update.message.reply_text("❌ <b>Hata:</b> Lütfen sadece sayı girin.")
+        return CAPTCHA
+
+async def check_channel_subscription(update, context):
+    user_id = update.effective_user.id
+    try:
+        chat_member = await context.bot.get_chat_member(chat_id=REQUIRED_CHANNEL, user_id=user_id)
+        if chat_member.status in [ChatMember.MEMBER, ChatMember.OWNER, ChatMember.ADMINISTRATOR]:
+            ref_id = context.user_data.get('pending_ref')
+            if ref_id:
+                add_ref(ref_id)
+                try: await context.bot.send_message(ref_id, f"🎉 <b>Tebrikler!</b> Yeni bir referans kazandınız ve {REF_REWARD} HappStar hesabınıza eklendi.", parse_mode=ParseMode.HTML)
+                except: pass
+                context.user_data.pop('pending_ref', None)
+            
+            if update.callback_query:
+                await context.bot.send_message(user_id, f"{E_CHECK} <b>Doğrulama Başarılı!</b> Hoş geldiniz.", parse_mode=ParseMode.HTML)
+            return await show_menu(update, context)
+        else:
+            kb = [
+                [InlineKeyboardButton("📢 Kanala Katıl", url=f"https://t.me/{REQUIRED_CHANNEL.replace('@', '')}")],
+                [InlineKeyboardButton(f"{E_CHECK} Kontrol Et", callback_data="check_join_status")]
+            ]
+            msg_text = f"🛡️ <b>BOT KORUMASI</b>\n\nDevam etmek için lütfen aşağıdaki kanala abone olun:\n👉 {REQUIRED_CHANNEL}\n\n<i>Abone olduktan sonra 'Kontrol Et' butonuna basın.</i>"
+            if update.message:
+                await update.message.reply_text(msg_text, reply_markup=InlineKeyboardMarkup(kb), parse_mode=ParseMode.HTML)
+            else:
+                await update.callback_query.edit_message_text(msg_text, reply_markup=InlineKeyboardMarkup(kb), parse_mode=ParseMode.HTML)
+            return CHANNEL_CHECK_WAIT
+    except Exception as e:
+        await context.bot.send_message(user_id, "⚠️ Kanal kontrolü yapılamadı. Lütfen tekrar deneyin.")
+        return CHANNEL_CHECK_WAIT
+
+async def channel_check_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query; await q.answer()
+    if q.data == "check_join_status": return await check_channel_subscription(update, context)
+
+async def show_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, u_data=None):
+    if MAINTENANCE_MODE and update.effective_user.id != ADMIN_ID:
+        msg = f"{E_MAINTENANCE} <b>BAKIM MODU</b>\n\nSistem şu anda bakım aşamasındadır."
+        if update.callback_query:
+            try: await update.callback_query.edit_message_text(msg, parse_mode=ParseMode.HTML)
+            except: await update.callback_query.message.reply_text(msg, parse_mode=ParseMode.HTML)
+        else:
+            await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
+        return ConversationHandler.END
+
+    user = update.effective_user
+    if not u_data:
+        raw_u, _ = get_user(user.id, user.first_name)
+        u_data = raw_u if raw_u else {"name": user.first_name, "balance": 0}
+        
+    if u_data.get('is_banned', 0) == 1:
+        await update.message.reply_text(f"{E_BAN} Engellendiniz.")
+        return ConversationHandler.END
+
+    txt = (f"{E_SLOT} <b>HAPP ROYAL CASINO</b>\n\n"
+           f"<blockquote>👤 <b>Oyuncu:</b> {u_data['name']}\n"
+           f"{E_STAR} <b>Bakiye:</b> <code>{u_data['balance']:.2f}</code> HappStar</blockquote>\n\n"
+           f"<i>Lütfen yapmak istediğiniz işlemi seçin:</i>")
+    
+    btns = [
+        [InlineKeyboardButton(f"{E_GAME} Şans Oyunları", callback_data="menu_games"), InlineKeyboardButton(f"Happ VPN {E_GLOBE}", callback_data="menu_vpn")],
+        [InlineKeyboardButton(f"{E_FOLDER} Sunucularım", callback_data="my_servers")],
+        [InlineKeyboardButton(f"{E_TROPHY} Lider Tablosu", callback_data="menu_top10"), InlineKeyboardButton(f"{E_GIFT} Referanslar", callback_data="menu_top10ref")],
+        [InlineKeyboardButton(f"{E_CREDIT} Bakiye Yükle", callback_data="menu_deposit"), InlineKeyboardButton(f"{E_FLY_MONEY} Çekim Yap", callback_data="menu_withdraw")],
+        [InlineKeyboardButton(f"{E_USER} Profil", callback_data="menu_profile"), InlineKeyboardButton(f"{E_PHONE} Destek", callback_data="menu_support")]
+    ]
+    
+    if update.effective_user.id == ADMIN_ID:
+        btns.append([InlineKeyboardButton(f"{E_GEAR} Admin Paneli", callback_data="menu_admin")])
+        
+    if update.callback_query:
+        try:
+            await update.callback_query.answer()
+            await update.callback_query.edit_message_text(txt, reply_markup=InlineKeyboardMarkup(btns), parse_mode=ParseMode.HTML)
+        except Exception:
+            await update.callback_query.message.reply_text(txt, reply_markup=InlineKeyboardMarkup(btns), parse_mode=ParseMode.HTML)
+    else:
+        await update.message.reply_text(txt, reply_markup=InlineKeyboardMarkup(btns), parse_mode=ParseMode.HTML)
+    return MENU
+
+# --- SUNUCULARIM ---
+async def show_my_servers(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    uid = q.from_user.id
+    subs = get_user_subscriptions(uid)
+    
+    if not subs:
+        await q.edit_message_text(f"{E_FOLDER} <b>SUNUCULARIM</b>\n\n<blockquote>Henüz hiç aktif VPN sunucunuz bulunmamaktadır.</blockquote>", 
+                                  reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(f"{E_HOME} Ana Menü", callback_data="back_start")]]), parse_mode=ParseMode.HTML)
+        return MENU
+
+    page = 0
+    if q.data.startswith("my_servers_"):
+        try: page = int(q.data.split("_")[2])
+        except: page = 0
+        
+    ITEMS_PER_PAGE = 5
+    total_subs = len(subs)
+    start_idx = page * ITEMS_PER_PAGE
+    end_idx = start_idx + ITEMS_PER_PAGE
+    current_subs = subs[start_idx:end_idx]
+    
+    token = get_marzban_token()
+    url, _, _, _ = get_panel_settings()
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"} if token else {}
+    
+    kb = []
+    for sub_id, pkg_name, gb_lim, m_username in current_subs:
+        status_icon = E_PACKAGE
+        extra_info = ""
+        is_deleted = False
+        
+        if token and m_username:
+            try:
+                r = requests.get(f"{url}/api/user/{m_username}", headers=headers, timeout=3)
+                if r.status_code == 200:
+                    u_data = r.json()
+                    used = u_data.get("used_traffic", 0)
+                    limit = u_data.get("data_limit", 0)
+                    if limit > 0 and used >= limit:
+                        status_icon = E_WARN
+                        extra_info = " (DOLU)"
+                elif r.status_code == 404:
+                    is_deleted = True
+            except: pass
+            
+        if not is_deleted:
+            btn_txt = f"{status_icon} {pkg_name} - {gb_lim}GB{extra_info}"
+            kb.append([InlineKeyboardButton(btn_txt, callback_data=f"viewsub_{sub_id}")])
+
+    if not kb and total_subs > 0 and page == 0:
+        await q.edit_message_text(f"{E_FOLDER} <b>SUNUCULARIM</b>\n\n<blockquote>Aktif sunucu bulunamadı.</blockquote>", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(f"{E_HOME} Ana Menü", callback_data="back_start")]]), parse_mode=ParseMode.HTML)
+        return MENU
+        
+    nav_row = []
+    if page > 0: nav_row.append(InlineKeyboardButton("⬅️ Önceki", callback_data=f"my_servers_{page-1}"))
+    if end_idx < total_subs: nav_row.append(InlineKeyboardButton("Sonraki ➡️", callback_data=f"my_servers_{page+1}"))
+    if nav_row: kb.append(nav_row)
+    
+    kb.append([InlineKeyboardButton(f"{E_HOME} Ana Menü", callback_data="back_start")])
+    await q.edit_message_text(f"{E_FOLDER} <b>SUNUCULARINIZ</b> (Sayfa {page+1})\n\n<i>Detaylar için pakete tıklayın:</i>", reply_markup=InlineKeyboardMarkup(kb), parse_mode=ParseMode.HTML)
+    return MENU
+
+async def view_subscription_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer("Veriler çekiliyor...", cache_time=0)
+    
+    try:
+        sub_id = int(q.data.split("_")[1])
+        sub = get_subscription_detail(sub_id)
+        if not sub: return MENU
+        
+        pkg, old_link, expire, gb, m_username, created_at = sub
+        final_link_to_show = old_link
+        is_live_link = False
+        
+        try:
+            token = get_marzban_token()
+            url, _, _, _ = get_panel_settings()
+            if token and m_username:
+                headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+                r = requests.get(f"{url}/api/user/{m_username}", headers=headers, timeout=5)
+                if r.status_code == 200:
+                    user_info = r.json()
+                    sub_url = user_info.get("subscription_url", "")
+                    if sub_url:
+                        if sub_url.startswith("/"): sub_url = f"{url}{sub_url}"
+                        happ_enc = encrypt_with_happ_api(sub_url)
+                        final_link_to_show = happ_enc if happ_enc else sub_url
+                        is_live_link = True
+        except: pass
+        
+        exp_date = datetime.fromtimestamp(expire).strftime('%d %b %Y %H:%M') if expire > 0 else "Sınırsız"
+        status_txt = f"{E_GREEN_C} <b>Durum:</b> Aktif" if is_live_link else f"{E_WARN} <b>Durum:</b> Pasif (Panelde Bulunamadı)"
+        safe_link = html.escape(final_link_to_show)
+        
+        msg = (f"{E_PACKAGE} <b>PAKET DETAYLARI</b>\n\n"
+               f"<blockquote>👤 <b>Kullanıcı:</b> {m_username}\n"
+               f"📦 <b>Paket:</b> {pkg}\n"
+               f"📊 <b>Limit:</b> {gb} GB\n"
+               f"⏳ <b>Bitiş:</b> {exp_date}\n"
+               f"{status_txt}\n\n"
+               f"🔗 <b>Bağlantı Linki:</b></blockquote>\n"
+               f"<pre>{safe_link}</pre>")
+        
+        kb = [
+            [InlineKeyboardButton("🗑 Sunucuyu Sil", callback_data=f"askdel_{sub_id}")],
+            [InlineKeyboardButton(f"{E_BACK} Listeye Dön", callback_data="my_servers"), InlineKeyboardButton(f"{E_HOME} Ana Menü", callback_data="back_start")]
+        ]
+        
+        await q.edit_message_text(msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode=ParseMode.HTML)
+        return MENU
+    except: return MENU
+
+async def ask_delete_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    sub_id = q.data.split("_")[1]
+    
+    warn_text = (f"⚠️ <b>DİKKAT!</b>\n\n"
+                 f"Sunucuyu silerseniz, <b>24 saatlik bekleme süresi</b> dolana kadar yeni bir 'Free' sunucu alamazsınız.\n\n"
+                 f"Emin misiniz?")
+    
+    kb = [
+        [InlineKeyboardButton("✅ Evet, Sil", callback_data=f"confdelsub_{sub_id}")],
+        [InlineKeyboardButton("❌ İptal", callback_data=f"viewsub_{sub_id}")]
+    ]
+    await q.edit_message_text(warn_text, reply_markup=InlineKeyboardMarkup(kb), parse_mode=ParseMode.HTML)
+    return MENU
+
+async def delete_subscription_process(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    sub_id = int(q.data.split("_")[1])
+    sub = get_subscription_detail(sub_id)
+    
+    if sub:
+        m_username = sub[4]
+        delete_vpn_user_api(m_username) # Panelden sil
+        delete_subscription(sub_id) # DB'den sil
+        await q.answer("Sunucu başarıyla silindi!", show_alert=True)
+        return await show_my_servers(update, context)
+    else:
+        await q.answer("Sunucu bulunamadı.", show_alert=True)
+        return await show_my_servers(update, context)
+
+async def vpn_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    u, _ = get_user(uid)
+    kb = [
+        [InlineKeyboardButton("🚀 Free", callback_data="buyvpn_free")],
+        [InlineKeyboardButton(f"{E_GEM} 10 GB - 25 {E_GLOW_STAR}", callback_data="buyvpn_10")],
+        [InlineKeyboardButton(f"{E_FIRE} 30 GB - 75 {E_GLOW_STAR}", callback_data="buyvpn_30")],
+        [InlineKeyboardButton(f"{E_CROWN} 100 GB - 250 {E_GLOW_STAR}", callback_data="buyvpn_100")],
+        [InlineKeyboardButton(f"{E_HOME} Ana Menü", callback_data="back_start")]
+    ]
+    await update.callback_query.edit_message_text(f"{E_GLOBE} <b>HAPP VPN PANELİ</b>\n\n<blockquote>{E_STAR} <b>Mevcut Bakiye:</b> <code>{u['balance']:.2f}</code> HappStar</blockquote>\n\n<i>Aşağıdan paket seçimi yapabilirsiniz:</i>", reply_markup=InlineKeyboardMarkup(kb), parse_mode=ParseMode.HTML)
+    return MENU
+
+async def buy_vpn_process(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    data = q.data.split("_")[1]
+    uid = q.from_user.id
+    u, _ = get_user(uid)
+    tg_name = q.from_user.username if q.from_user.username else str(uid)
+    
+    price = 0; gb = 0; days = 30; pkg_name = ""
+    
+    try:
+        if data == "free":
+            days = 3; gb = 3; pkg_name = "Free"
+            last_claim = u.get('last_free_claim')
+            if last_claim is None: last_claim = 0
+            now = int(time.time())
+            if now - last_claim < 86400:
+                remaining = 86400 - (now - last_claim)
+                hrs, mins = divmod(remaining // 60, 60)
+                await q.answer()
+                msg_text = (f"⚠️ <b>ÜZGÜNÜZ!</b>\n\nBu paketi tekrar alabilmek için beklemeniz gerekmektedir.\n\n⏳ <b>Kalan Süre:</b> {int(hrs)} Saat {int(mins)} Dakika")
+                await context.bot.send_message(uid, msg_text, parse_mode=ParseMode.HTML)
+                return MENU
+        elif data == "10": price = 25; gb = 10; pkg_name = "10GB"
+        elif data == "30": price = 75; gb = 30; pkg_name = "30GB"
+        elif data == "100": price = 250; gb = 100; pkg_name = "100GB"
+        
+        await q.answer()
+        if u['balance'] < price:
+            await q.answer("❌ Yetersiz Bakiye!", show_alert=True)
+            return MENU
+            
+        await q.edit_message_text(f"{E_HOURGLASS} <b>İşlem yapılıyor, lütfen bekleyin...</b>\n\n<i>Paket: {pkg_name} ({days} Gün / {gb} GB)</i>", parse_mode=ParseMode.HTML)
+        
+        loop = asyncio.get_running_loop()
+        success, _, expire_ts, link, final_username = await loop.run_in_executor(None, create_vpn_user, gb, days, pkg_name, tg_name)
+        
+        kb = [[InlineKeyboardButton(f"{E_HOME} Ana Menüye Dön", callback_data="back_start")]]
+        
+        if success:
+            if price > 0: update_bal(uid, -price)
+            if data == "free": update_free_claim(uid)
+            
+            add_subscription(uid, pkg_name, link, expire_ts, final_username, gb)
+            exp_str = datetime.fromtimestamp(expire_ts).strftime('%d %b %Y %H:%M') if expire_ts > 0 else "Sınırsız"
+            safe_link = html.escape(link)
+            
+            final_msg = (f"{E_CHECK} <b>İŞLEM BAŞARILI!</b>\n\n"
+                         f"<blockquote>👤 <b>Kullanıcı:</b> {final_username}\n"
+                         f"📦 <b>Paket:</b> {pkg_name}\n"
+                         f"📊 <b>Veri:</b> <code>{gb} GB</code>\n"
+                         f"⏳ <b>Bitiş:</b> {exp_str}</blockquote>\n\n"
+                         f"👇 <b>BAĞLANTI LİNKİ</b> 👇\n"
+                         f"<pre>{safe_link}</pre>")
+            await context.bot.send_message(uid, final_msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode=ParseMode.HTML)
+        else:
+            await context.bot.send_message(uid, f"{E_CROSS} <b>Bir hata oluştu. Lütfen yöneticiye bildirin.</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode=ParseMode.HTML)
+    except Exception as e:
+        try: await context.bot.send_message(uid, f"{E_CROSS} <b>Sistem Hatası:</b>\n{str(e)}", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(f"{E_HOME} Ana Menü", callback_data="back_start")]]), parse_mode=ParseMode.HTML)
+        except: pass
+    return MENU
+
+async def menu_nav(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query; await q.answer(); d = q.data
+    uid = q.from_user.id
+
+    if MAINTENANCE_MODE and uid != ADMIN_ID:
+        await q.answer("⚠️ BAKIM MODU AKTİF!\nSistem şu an kullanılamıyor.", show_alert=True)
+        return MENU
+    
+    if d == "menu_vpn": return await vpn_menu(update, context)
+    if d.startswith("buyvpn_"): return await buy_vpn_process(update, context)
+    if d == "my_servers" or d.startswith("my_servers_"): return await show_my_servers(update, context)
+    if d.startswith("viewsub_"): return await view_subscription_detail(update, context)
+    if d.startswith("askdel_"): return await ask_delete_confirmation(update, context)
+    if d.startswith("confdelsub_"): return await delete_subscription_process(update, context)
+    
+    if d == "menu_games":
+        kb = [
+            [InlineKeyboardButton(f"{E_BOMB} Mines", callback_data="game_mines"), InlineKeyboardButton(f"🎡 Rulet", callback_data="game_roulette")],
+            [InlineKeyboardButton(f"{E_DICE} Zar", callback_data="game_dice"), InlineKeyboardButton(f"{E_BASKET} Basket", callback_data="game_basket")],
+            [InlineKeyboardButton(f"{E_BOWLING} Bowling", callback_data="game_bowling"), InlineKeyboardButton(f"{E_DART} Dart", callback_data="game_dart")],
+            [InlineKeyboardButton(f"{E_FOOTBALL} Futbol ⚽", callback_data="game_football"), InlineKeyboardButton(f"✌️ RPS", callback_data="game_rps")],
+            [InlineKeyboardButton(f"🌑 Ay/Güneş 🌕", callback_data="game_coin"), InlineKeyboardButton(f"🎈 Balon", callback_data="game_balloon")],
+            [InlineKeyboardButton(f"{E_HOME} Ana Menü", callback_data="back_start")]
+        ]
+        await q.edit_message_text(f"{E_GAME} <b>OYUN SALONU</b>\n\n<i>Şansınızı denemek için bir oyun seçin:</i>", reply_markup=InlineKeyboardMarkup(kb), parse_mode=ParseMode.HTML)
+        return GAME_SELECTION
+        
+    elif d == "menu_top10":
+        data = get_top10_winners()
+        txt = f"{E_TROPHY} <b>TOP 10 KAZANANLAR</b>\n\n"
+        if data:
+            for i, row in enumerate(data, 1):
+                name = row[1] if row[1] and row[1] != "Oyuncu" else f"ID: {row[0]}"
+                txt += f"<blockquote><b>{i}.</b> <a href='tg://user?id={row[0]}'>{name}</a>\n└ {E_MONEY} <code>{row[2]:.2f}</code> HappStar</blockquote>\n"
+        else:
+            txt += "<blockquote>📭 Veri yok veya yeterli oyun oynanmadı.</blockquote>"
+        await q.edit_message_text(txt, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(f"{E_HOME} Ana Menü", callback_data="back_start")]]), parse_mode=ParseMode.HTML)
+        return MENU
+        
+    elif d == "menu_top10ref":
+        data = get_top10_refs()
+        txt = f"{E_GIFT} <b>TOP 10 REFERANS (GENEL)</b>\n\n"
+        if data:
+            for i, row in enumerate(data, 1):
+                user_id = row[0]
+                name = html.escape(row[1]) if row[1] and row[1] != "Oyuncu" else "İsimsiz"
+                invited_count = row[2]
+                txt += f"<blockquote><b>{i}.</b> <a href='tg://user?id={user_id}'>{name}</a>\n└ 👥 <code>{invited_count}</code> Davet</blockquote>\n"
+        else:
+            txt += "<blockquote>📭 Veri yok.</blockquote>"
+        await q.edit_message_text(txt, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(f"{E_HOME} Ana Menü", callback_data="back_start")]]), parse_mode=ParseMode.HTML)
+        return MENU
+        
+    elif d == "menu_withdraw":
+        kb = [[InlineKeyboardButton(f"HappStars {E_GLOW_STAR}", callback_data="w_method_stars"), InlineKeyboardButton(f"TMT {E_FLY_MONEY}", callback_data="w_method_tmt")],
+              [InlineKeyboardButton(f"{E_HOME} Ana Menü", callback_data="back_start")]]
+        await q.edit_message_text(f"{E_FLY_MONEY} <b>ÇEKİM YÖNTEMİ</b>\n\nLütfen çekim yapmak istediğiniz yöntemi seçin:", reply_markup=InlineKeyboardMarkup(kb), parse_mode=ParseMode.HTML)
+        return WITHDRAW_METHOD
+        
+    elif d == "menu_deposit":
+        kb = [[InlineKeyboardButton(f"{E_GLOW_STAR} 25", callback_data="buy_25"), InlineKeyboardButton(f"{E_GLOW_STAR} 50", callback_data="buy_50")],
+              [InlineKeyboardButton(f"{E_GLOW_STAR} 100", callback_data="buy_100"), InlineKeyboardButton(f"{E_PENCIL} Özel Tutar", callback_data="buy_custom")],
+              [InlineKeyboardButton(f"{E_HOME} Ana Menü", callback_data="back_start")]]
+        await q.edit_message_text(f"{E_CREDIT} <b>BAKİYE YÜKLE</b>\n\n<i>Hesabınıza HappStar yüklemek için paket seçin:</i>", reply_markup=InlineKeyboardMarkup(kb), parse_mode=ParseMode.HTML)
+        return MENU
+        
+    elif d == "menu_support":
+        kb = [[InlineKeyboardButton("🎫 Destek Talebi Oluştur", callback_data="start_ticket")],
+              [InlineKeyboardButton(f"{E_HOME} Ana Menü", callback_data="back_start")]]
+        await q.edit_message_text(f"{E_PHONE} <b>CANLI DESTEK (TICKET)</b>\n\n<blockquote>Her türlü soru ve sorununuz için yetkililerimizle iletişime geçebilirsiniz.\n\nDestek talebi oluşturmak için aşağıdaki butona basın.</blockquote>", reply_markup=InlineKeyboardMarkup(kb), parse_mode=ParseMode.HTML)
+        return MENU
+        
+    elif d == "menu_profile":
+        u, _ = get_user(uid, update.effective_user.first_name)
+        if not u: u = {"name": "User", "balance": 0, "earned": 0, "invited": 0}
+        invite_count = u['invited'] if u['invited'] is not None else 0
+        link = f"https://t.me/{context.bot.username}?start=ref_{uid}"
+        txt = (f"{E_USER} <b>PROFİL BİLGİLERİ</b>\n\n"
+               f"<blockquote>🆔 <b>ID:</b> <code>{uid}</code>\n"
+               f"👤 <b>İsim:</b> {u['name']}\n"
+               f"{E_STAR} <b>Bakiye:</b> <code>{u['balance']:.2f}</code> HappStar\n"
+               f"👥 <b>Davet:</b> {invite_count} Kişi\n"
+               f"{E_LINK} <b>Davet Linkiniz:</b> <i>(Her referans için 1⭐)</i>\n<code>{link}</code></blockquote>")
+        await q.edit_message_text(txt, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(f"{E_HOME} Ana Menü", callback_data="back_start")]]), parse_mode=ParseMode.HTML)
+        return MENU
+        
+    elif d == "menu_admin": return await admin_menu(update, context)
+    elif d == "back_start": return await show_menu(update, context)
+
+async def start_ticket_process(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query; await q.answer()
+    kb = [[InlineKeyboardButton("🚫 Tiketi Kapat (Menü)", callback_data="end_ticket")]]
+    await q.edit_message_text(f"{E_WRITE} <b>DESTEK TALEBİ OLUŞTURULDU</b>\n\n<blockquote>Lütfen sorununuzu aşağıya yazın. Yetkililerimiz en kısa sürede dönüş yapacaktır.\n\nİşiniz bittiğinde <b>'Tiketi Kapat'</b> butonuna basabilirsiniz.</blockquote>", reply_markup=InlineKeyboardMarkup(kb), parse_mode=ParseMode.HTML)
+    return SUPPORT_USER
+
+async def end_ticket_process(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query; await q.answer("Tiket kapatıldı.")
+    return await show_menu(update, context)
+
+async def withdraw_method_choice(update, context):
+    q = update.callback_query; await q.answer()
+    context.user_data['w_type'] = 's' if q.data == "w_method_stars" else 't'
+    context.user_data['w_method'] = "HappStars" if q.data == "w_method_stars" else "TMT"
+    
+    # DB'den çekilen metin
+    withdraw_info = get_withdraw_text_from_db()
+    
+    txt = (f"💰 <b>ÇEKİM MİKTARI</b>\n\n"
+           f"{withdraw_info}\n\n"
+           f"<blockquote>Çekmek istediğiniz HappStar miktarını yazın.\n🔻 <b>Minimum:</b> {MIN_WITHDRAW} HappStar</blockquote>")
+    
+    await q.edit_message_text(txt, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(f"{E_BACK} Geri", callback_data="back_start")]]), parse_mode=ParseMode.HTML)
+    return WITHDRAW_AMT
+
+async def withdraw_amt(update, context):
+    try: amt = float(update.message.text)
+    except: return WITHDRAW_AMT
+    uid = update.effective_user.id
+    if uid != ADMIN_ID and not is_user_in_top10(uid):
+        await update.message.reply_text(f"{E_WARN} <b>Uyarı:</b>\nSadece TOP 10 listesindekiler çekim yapabilir.", parse_mode=ParseMode.HTML); return WITHDRAW_AMT
+    if amt < MIN_WITHDRAW:
+        await update.message.reply_text(f"🔻 <b>Minimum tutar:</b> {MIN_WITHDRAW}", parse_mode=ParseMode.HTML); return WITHDRAW_AMT
+    u_db, _ = get_user(uid)
+    if amt > u_db['balance']:
+        await update.message.reply_text("❌ <b>Yetersiz Bakiye</b>", parse_mode=ParseMode.HTML); return WITHDRAW_AMT
+    context.user_data['w_amt'] = amt
+    if context.user_data['w_method'] == "HappStars":
+        await finalize_withdrawal_process(update, context, update.effective_user, amt, "Stars (XTR)", "Telegram ID"); return MENU
+    else:
+        await update.message.reply_text(f"📱 <b>TELEFON NUMARASI</b>\n\nLütfen TMT gönderimi için numaranızı yazın (+993...):", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(f"{E_BACK} İptal", callback_data="back_start")]]), parse_mode=ParseMode.HTML); return WITHDRAW_NUM
+
+async def withdraw_num(update, context):
+    await finalize_withdrawal_process(update, context, update.effective_user, context.user_data['w_amt'], "TMT", update.message.text)
+    return MENU
+
+async def finalize_withdrawal_process(update, context, user, amount, method, account_info):
+    kb = [[InlineKeyboardButton(f"{E_CHECK} Onayla", callback_data=f"pay_{user.id}_{amount}_{context.user_data['w_type']}"), InlineKeyboardButton(f"{E_CROSS} Reddet", callback_data=f"reject_{user.id}_{amount}")]]
+    user_link = f"<a href='tg://user?id={user.id}'>{user.first_name}</a>"
+    username_display = f"@{user.username}" if user.username else "Yok"
+    msg_to_admin = (f"🔔 <b>YENİ ÇEKİM TALEBİ</b>\n<blockquote>👤 <b>Kullanıcı:</b> {username_display} ({user_link})\n🆔 <b>ID:</b> <code>{user.id}</code>\n💰 <b>Tutar:</b> <code>{amount}</code> HappStar\n🏦 <b>Yöntem:</b> {method}\n📝 <b>Hesap:</b> <code>{account_info}</code></blockquote>")
+    await context.bot.send_message(ADMIN_ID, msg_to_admin, reply_markup=InlineKeyboardMarkup(kb), parse_mode=ParseMode.HTML)
+    update_bal(user.id, -amount); update_withdrawn(user.id, amount)
+    msg = f"{E_CHECK} <b>TALEBİNİZ ALINDI</b>\n\n<blockquote>Çekim talebiniz yöneticiye iletildi. İncelendikten sonra onaylanacaktır.</blockquote>"
+    if update.message: await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(f"{E_HOME} Ana Menü", callback_data="back_start")]]), parse_mode=ParseMode.HTML)
+    else: await update.callback_query.message.reply_text(msg, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(f"{E_HOME} Ana Menü", callback_data="back_start")]]), parse_mode=ParseMode.HTML)
+
+async def successful_payment_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    amt = update.message.successful_payment.total_amount
+    if update.message.successful_payment.currency != "XTR": amt = amt // 100
+    update_bal(update.message.from_user.id, amt)
+    msg = (f"{E_CHECK} <b>ÖDEME BAŞARILI!</b>\n\n<blockquote>🎉 <b>Tebrikler!</b> Hesabınıza bakiye yüklendi.\n💎 <b>Yüklenen Tutar:</b> <code>{amt}</code> HappStar\n🆔 <b>İşlem No:</b> <code>#{random.randint(10000,99999)}</code></blockquote>\n\n<i>İyi oyunlar dileriz!</i> 🎰")
+    await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
+    user = update.message.from_user; username_txt = f"@{user.username}" if user.username else user.first_name
+    admin_msg = (f"💎 <b>YENİ PREMIUM YÜKLEME</b>\n\n<blockquote>👤 <b>Kullanıcı:</b> {username_txt} (ID: <code>{user.id}</code>)\n💰 <b>Tutar:</b> {amt} HappStar {E_GLOW_STAR}\n💳 <b>Ödeme Tipi:</b> Telegram Stars\n📅 <b>Tarih:</b> {datetime.now().strftime('%d.%m.%Y %H:%M')}</blockquote>")
+    await context.bot.send_message(ADMIN_ID, admin_msg, parse_mode=ParseMode.HTML)
+
+async def send_invoice_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, amount=None):
+    if not amount:
+        q = update.callback_query; await q.answer()
+        if q.data == "buy_custom":
+            await q.edit_message_text(f"{E_CREDIT} <b>YÜKLEME MİKTARI</b>\n\nLütfen yüklemek istediğiniz HappStar miktarını yazın:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(f"{E_BACK} Geri", callback_data="back_start")]]), parse_mode=ParseMode.HTML); return DEPOSIT_AMT_INPUT
+        amount = int(q.data.split("_")[1])
+    await context.bot.send_invoice(update.effective_chat.id, title=f"{amount} HappStar Yükle", description="Happ Royal Casino Bakiye", payload=f"payload_{amount}", provider_token=PAYMENT_PROVIDER_TOKEN, currency="XTR", prices=[LabeledPrice("HappStar Yükle", amount)])
+    return MENU
+
+async def deposit_custom_input(update, context):
+    try: await send_invoice_handler(update, context, int(update.message.text))
+    except: pass; return MENU
+
+async def precheckout_callback(update, context):
+    await update.pre_checkout_query.answer(ok=True)
+
+# --- GAME LOGIC ---
+async def game_selection(update, context):
+    q = update.callback_query; await q.answer()
+    if q.data == "back_start": return await show_menu(update, context)
+    context.user_data['game_type'] = q.data.split("_")[1]
+    u, _ = get_user(q.from_user.id)
+    
+    if context.user_data['game_type'] == "roulette":
+        kb = [[InlineKeyboardButton("🔴 Kırmızı (1.9x)", callback_data="bet_roulette_red"), InlineKeyboardButton("⚫ Siyah (1.9x)", callback_data="bet_roulette_black")], [InlineKeyboardButton("🟢 Yeşil (29x)", callback_data="bet_roulette_green")], [InlineKeyboardButton(f"{E_BACK} Geri", callback_data="back_start")]]
+        await q.edit_message_text(f"🎡 <b>RULET</b>\n\n<blockquote>{E_STAR} <b>Kasa:</b> <code>{u['balance']:.2f}</code> HappStar</blockquote>\n\n<i>Bahis yapmak istediğiniz rengi seçin:</i>", reply_markup=InlineKeyboardMarkup(kb), parse_mode=ParseMode.HTML); return ROULETTE_SELECTION
+    
+    if context.user_data['game_type'] == "rps":
+        kb = [[InlineKeyboardButton("✊ Taş", callback_data="bet_rps_rock"), InlineKeyboardButton("✋ Kağıt", callback_data="bet_rps_paper"), InlineKeyboardButton("✌️ Makas", callback_data="bet_rps_scissors")], [InlineKeyboardButton(f"{E_BACK} Geri", callback_data="back_start")]]
+        await q.edit_message_text(f"✌️ <b>TAŞ KAĞIT MAKAS</b>\n\n<blockquote>{E_STAR} <b>Kasa:</b> <code>{u['balance']:.2f}</code> HappStar</blockquote>\n\n<i>Hamlenizi seçin:</i>", reply_markup=InlineKeyboardMarkup(kb), parse_mode=ParseMode.HTML); return RPS_SELECTION
+    
+    kb = [
+        [InlineKeyboardButton("1", callback_data="bet_1"), InlineKeyboardButton("2", callback_data="bet_2")],
+        [InlineKeyboardButton("4", callback_data="bet_4"), InlineKeyboardButton(f"{E_PENCIL}", callback_data="bet_custom")],
+        [InlineKeyboardButton(f"{E_BACK} Geri", callback_data="back_start")]
+    ]
+    await q.edit_message_text(
+        f"{E_GAME} <b>{context.user_data['game_type'].upper()}</b>\n\n"
+        f"<blockquote>{E_STAR} <b>Kasa:</b> <code>{u['balance']:.2f}</code> HappStar</blockquote>\n\n"
+        f"<i>Bahis miktarını seçin veya yazın:</i>",
+        reply_markup=InlineKeyboardMarkup(kb),
+        parse_mode=ParseMode.HTML
+    )
+    return BET_SELECTION
+    
+async def bet_process(update, context):
+    q = update.callback_query; await q.answer()
+    if q.data == "bet_custom":
+        await q.edit_message_text(f"{E_PENCIL} <b>BAHİS MİKTARI</b>\n\nLütfen oynamak istediğiniz tutarı yazın:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(f"{E_BACK} Geri", callback_data="back_start")]]), parse_mode=ParseMode.HTML); return CUSTOM_BET
+    if q.data == "back_start": return await show_menu(update, context)
+    try: return await launch_game(update, context, float(q.data.split("_")[1]))
+    except: return await show_menu(update, context)
+
+async def custom_bet_process(update, context):
+    return await launch_game(update, context, float(update.message.text), True)
+
+async def specialized_game_choice(update, context):
+    q = update.callback_query; await q.answer()
+    if q.data == "back_start": return await show_menu(update, context)
+    context.user_data['game_choice'] = q.data.split("_")[2]
+    u, _ = get_user(q.from_user.id)
+    kb = [[InlineKeyboardButton("1", callback_data="bet_1"), InlineKeyboardButton("2", callback_data="bet_2")], [InlineKeyboardButton("4", callback_data="bet_4"), InlineKeyboardButton(f"{E_PENCIL}", callback_data="bet_custom")], [InlineKeyboardButton(f"{E_BACK} Geri", callback_data="back_start")]]
+    await q.edit_message_text(f"🎲 <b>BAHİS MİKTARI</b>\n<i>(Seçim: {context.user_data['game_choice'].upper()})</i>\n\nLütfen bahis miktarını belirleyin:", reply_markup=InlineKeyboardMarkup(kb), parse_mode=ParseMode.HTML); return BET_SELECTION
+
+async def launch_game(update, context, amt, is_msg=False):
+    uid = update.effective_user.id; u, _ = get_user(uid)
+    if amt > u['balance'] or amt < 0.1: return MENU
+    update_bal(uid, -amt); gtype = context.user_data.get('game_type', 'slots'); chat_id = update.effective_chat.id
+    if not is_msg:
+        try: await update.callback_query.message.delete()
+        except: pass
+        
+    if gtype == 'mines':
+        cells = [0]*16; [cells.__setitem__(i, 1) for i in random.sample(range(16), 3)]
+        active_games[uid] = {"bet": amt, "cells": cells, "revealed": [False]*16, "step": 0, "last_click": time.time()}
+        await context.bot.send_message(chat_id, f"{E_BOMB} <b>MINES</b>\nBahis: <code>{amt}</code>", reply_markup=get_mines_board(active_games[uid], bet_amt=amt), parse_mode=ParseMode.HTML); return MINES_LOOP
+        
+    if gtype == 'balloon':
+        active_games[uid] = {"game": "balloon", "bet": amt, "mult": 1.0}
+        await context.bot.send_message(chat_id, f"🎈 <b>Balon Şişiriliyor...</b>\n\nÇarpan: <b>1.00x</b>\n<i>Patlamadan parayı çek!</i>", reply_markup=get_balloon_board(1.0, False, amt), parse_mode=ParseMode.HTML)
+        return BALLOON_LOOP
+        
+    win = 0; msg_txt = ""
+    if gtype == 'slots':
+        val = (await context.bot.send_dice(chat_id, emoji=E_SLOT)).dice.value; await asyncio.sleep(2)
+        win = amt * (10 if val==64 else (5 if val==1 else (2 if val==43 else 0)))
+    elif gtype == 'roulette':
+        choice = context.user_data.get('game_choice')
+        res_num = random.randint(1, 37)
+        if res_num == 37: res_color = "green"
+        elif res_num in RED_NUMBERS: res_color = "red"
+        else: res_color = "black"
+        
+        sticker_index = res_num - 1
+        if 0 <= sticker_index < len(ROULETTE_STICKERS):
+            try: await context.bot.send_sticker(chat_id, ROULETTE_STICKERS[sticker_index])
+            except: await context.bot.send_message(chat_id, f"🎡 <b>{res_num}</b>", parse_mode=ParseMode.HTML)
+        else: 
+            await context.bot.send_dice(chat_id, emoji="🎯")
+            
+        await asyncio.sleep(1)
+        icon = '🟢' if res_color == 'green' else ('🔴' if res_color == 'red' else '⚫')
+        msg_txt = f"Sonuç: {icon} <b>{res_num}</b>"
+        if choice == res_color:
+            if choice == 'green': win = amt * 29.0
+            else: win = amt * 1.9
+            
+    elif gtype == 'rps':
+        choice = context.user_data.get('game_choice')
+        bot_choice = random.choice(['rock', 'paper', 'scissors'])
+        map_emoji = {'rock': '✊', 'paper': '✋', 'scissors': '✌️'}
+        await context.bot.send_message(chat_id, f"Bot Seçiyor... {E_ROBOT}"); await asyncio.sleep(1.5)
+        msg_txt = f"Sen: {map_emoji[choice]} vs Bot: {map_emoji[bot_choice]}\n"
+        if choice == bot_choice: win = amt
+        elif (choice == 'rock' and bot_choice == 'scissors') or (choice == 'paper' and bot_choice == 'rock') or (choice == 'scissors' and bot_choice == 'paper'): win = amt * 1.5
+    elif gtype == 'coin':
+        res = random.choice([0, 1])
+        await context.bot.send_message(chat_id, "Para atılıyor... 🪙"); await asyncio.sleep(1.5)
+        if res == 1: msg_txt = f"{E_MOON} Kazandın!"; win = amt * 1.95
+        else: msg_txt = f"{E_SUN} Kaybettin!"
+    elif gtype == 'dice':
+        val = (await context.bot.send_dice(chat_id, emoji=E_DICE)).dice.value; await asyncio.sleep(2)
+        b_val = (await context.bot.send_dice(chat_id, emoji=E_DICE)).dice.value; await asyncio.sleep(2)
+        win = amt * 2 if val > b_val else (amt if val == b_val else 0)
+    elif gtype == 'basket':
+        val = (await context.bot.send_dice(chat_id, emoji=E_BASKET)).dice.value; await asyncio.sleep(3)
+        if val >= 4: win = amt * 2.0
+    elif gtype == 'bowling':
+        val = (await context.bot.send_dice(chat_id, emoji=E_BOWLING)).dice.value; await asyncio.sleep(3)
+        if val == 6: win = amt * 3.5
+    elif gtype == 'dart':
+        val = (await context.bot.send_dice(chat_id, emoji=E_DART)).dice.value; await asyncio.sleep(2)
+        if val == 6: win = amt * 4.0
+        elif val == 5: win = amt * 2.0
+    elif gtype == 'football':
+        val = (await context.bot.send_dice(chat_id, emoji=E_FOOTBALL)).dice.value; await asyncio.sleep(2)
+        if val in [3, 4, 5]: win = amt * 1.35; msg_txt = "⚽ GOL! (Oran: 1.35x)"
+        else: msg_txt = "Kaçtı..."
+        
+    update_bal(uid, win, True)
+    update_game_stats(uid, 'win' if win > 0 else 'loss')
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton(f"{E_REFRESH} Tekrar Oyna", callback_data=f"bet_{int(amt)}"), InlineKeyboardButton(f"{E_HOME} Ana Menü", callback_data="back_start")]])
+    if win > 0: final_msg = (f"🎰 <b>OYUN SONUCU</b>\n\n<blockquote>{E_TROPHY} <b>KAZANÇ:</b> <code>{win:.2f}</code> HappStar\n{msg_txt}</blockquote>")
+    else: final_msg = (f"🎰 <b>OYUN SONUCU</b>\n\n<blockquote>{E_SKULL} <b>KAYIP</b>\n{msg_txt}</blockquote>")
+    await context.bot.send_message(chat_id, final_msg, reply_markup=kb, parse_mode=ParseMode.HTML); return MENU
+
+async def mines_loop(update, context):
+    q = update.callback_query; 
+    uid = q.from_user.id
+    if q.data == "back_start": 
+        await q.answer()
+        return await show_menu(update, context)
+        
+    if uid not in active_games or "cells" not in active_games[uid]: return await show_menu(update, context)
+    g = active_games[uid]
+    
+    current_time = time.time()
+    last_click = g.get('last_click', 0)
+    if current_time - last_click < 0.8:
+        await q.answer("⚠️ Çok hızlı tıklıyorsun! Yavaşla.", show_alert=True)
+        return MINES_LOOP
+    g['last_click'] = current_time
+
+    if q.data == "cashout":
+        await q.answer()
+        prize = g["bet"] * MULTIPLIERS[g["step"]]
+        update_bal(uid, prize, True); update_game_stats(uid, 'win'); del active_games[uid]
+        await q.edit_message_text(f"{E_CHECK} <b>TEBRİKLER!</b>\n\nKazancınız: <code>{prize:.2f}</code> HappStar", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(f"{E_HOME} Ana Menü", callback_data="back_start")]]), parse_mode=ParseMode.HTML); return MENU
+    
+    await q.answer()
+    idx = int(q.data.split("_")[1])
+    if g["cells"][idx]:
+        del active_games[uid]; update_game_stats(uid, 'loss')
+        await q.edit_message_text(f"{E_BOOM} <b>BOM! PATLADINIZ</b>", reply_markup=get_mines_board(g, True, g['bet']), parse_mode=ParseMode.HTML); return MENU
+        
+    g["revealed"][idx] = True; g["step"] += 1
+    await q.edit_message_text(f"Kasa: <code>{g['bet'] * MULTIPLIERS[g['step']]:.2f}</code> HappStar", reply_markup=get_mines_board(g, bet_amt=g['bet']), parse_mode=ParseMode.HTML); return MINES_LOOP
+
+async def balloon_loop(update, context):
+    q = update.callback_query; await q.answer()
+    uid = q.from_user.id
+    if uid not in active_games or active_games[uid].get('game') != 'balloon': return await show_menu(update, context)
+    g = active_games[uid]
+    
+    if q.data == "balloon_cashout":
+        win_amt = g['bet'] * g['mult']
+        update_bal(uid, win_amt, True)
+        update_game_stats(uid, 'win')
+        del active_games[uid]
+        await q.edit_message_text(f"✅ <b>PARAYI ALDIN!</b>\n\n<blockquote>Çarpan: <b>{g['mult']:.2f}x</b>\nKazanç: <code>{win_amt:.2f}</code> HappStar</blockquote>", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Tekrar Oyna", callback_data=f"bet_{int(g['bet'])}"), InlineKeyboardButton("Menü", callback_data="back_start")]]), parse_mode=ParseMode.HTML)
+        return MENU
+    if q.data == "balloon_inflate":
+        chance = 0.05 + (g['mult'] - 1.0) * 0.1
+        if random.random() < chance:
+            del active_games[uid]
+            update_game_stats(uid, 'loss')
+            await q.edit_message_text(f"💥 <b>GÜM! BALON PATLADI!</b>\n\nSon Çarpan: {g['mult']:.2f}x", reply_markup=get_balloon_board(g['mult'], True, g['bet']), parse_mode=ParseMode.HTML)
+            return MENU
+        else:
+            g['mult'] += 0.10
+            await q.edit_message_text(f"🎈 <b>Balon Şişiyor...</b>\n\nÇarpan: <b>{g['mult']:.2f}x</b>\n<i>Patlamadan devam et veya parayı al!</i>", reply_markup=get_balloon_board(g['mult'], False, g['bet']), parse_mode=ParseMode.HTML)
+            return BALLOON_LOOP
+
+# --- ADMIN HANDLERS ---
+async def admin_menu(update, context):
+    global MAINTENANCE_MODE
+    maintenance_status_text = "AÇIK (Kapat) 🔴" if MAINTENANCE_MODE else "KAPALI (Aç) 🟢"
+    
+    kb = [
+        [InlineKeyboardButton(f"{E_GEAR} Panel Ayarları", callback_data="adm_settings")],
+        [InlineKeyboardButton(f"{E_CHART} İstatistikler", callback_data="adm_stats"), InlineKeyboardButton(f"🏆 Top 10 Bakiye", callback_data="adm_top10_rich")],
+        [InlineKeyboardButton(f"🏆 Yarışma (Ref)", callback_data="adm_ref_contest")],
+        [InlineKeyboardButton(f"{E_SEARCH} Kullanıcı Sorgula (ID)", callback_data="adm_query")],
+        [InlineKeyboardButton(f"{E_LOUD} Duyuru Yap (Foto/Text)", callback_data="adm_broad")],
+        [InlineKeyboardButton(f"{E_MONEY} Bakiye Yönetimi", callback_data="adm_money")],
+        [InlineKeyboardButton(f"👥 Ref Sayısı (Genel)", callback_data="adm_set_ref"), InlineKeyboardButton(f"👥 Ref Sayısı (Yarışma)", callback_data="adm_set_contest_ref")], # YENİ MANUEL DÜZENLEME
+        [InlineKeyboardButton(f"💱 Çekim Yazısını Düzenle", callback_data="adm_set_withdraw_text")], # YENİ ÇEKİM BUTONU
+        [InlineKeyboardButton(f"{E_REFRESH} Kullanıcı Free Sıfırla", callback_data="adm_reset_limit_one")],
+        [InlineKeyboardButton(f"{E_MAIL} ID ile Mesaj Gönder", callback_data="adm_msg_id")],
+        [InlineKeyboardButton(f"{E_BAN} Kullanıcı Engelle", callback_data="adm_ban"), InlineKeyboardButton(f"{E_CHECK} Engel Kaldır", callback_data="adm_unban")],
+        [InlineKeyboardButton(f"{E_SUPPORT} Support Ekle", callback_data="adm_add_support"), InlineKeyboardButton(f"{E_SUPPORT} Support Kaldır", callback_data="adm_rem_support")],
+        [InlineKeyboardButton(f"{E_LOCK} Bakım Modu: {maintenance_status_text}", callback_data="adm_maintenance_toggle")],
+        [InlineKeyboardButton(f"{E_REFRESH} Free Süresini Sıfırla (Herkes)", callback_data="adm_reset_free")],
+        [InlineKeyboardButton(f"🗑️ Kullanıcı Sıfırla (Ref Test)", callback_data="adm_reset_user")],
+        [InlineKeyboardButton(f"{E_HOME} Ana Menüye Dön", callback_data="back_start")]
+    ]
+    
+    msg_txt = f"{E_GEAR} <b>ADMIN PANELİ</b>\n\n<i>Yönetim işlemlerini buradan yapabilirsiniz.</i>"
+    if MAINTENANCE_MODE:
+        msg_txt += "\n\n⚠️ <b>BAKIM MODU ŞU AN AÇIK!</b>"
+
+    await update.callback_query.edit_message_text(msg_txt, reply_markup=InlineKeyboardMarkup(kb), parse_mode=ParseMode.HTML)
+    return ADMIN_PANEL
+
+async def admin_action(update, context):
+    global MAINTENANCE_MODE
+    q = update.callback_query; await q.answer(); d = q.data
+    
+    if d == "adm_maintenance_toggle":
+        MAINTENANCE_MODE = not MAINTENANCE_MODE
+        status_msg = "AÇILDI 🔴" if MAINTENANCE_MODE else "KAPATILDI 🟢"
+        await q.answer(f"Bakım modu {status_msg}!")
+        return await admin_menu(update, context)
+
+    # --- YARIŞMA (REF) HANDLER ---
+    if d == "adm_ref_contest":
+        data = get_top10_contest_refs()
+        txt = f"🏆 <b>REFERANS YARIŞMASI (TOP 10)</b>\n\n"
+        if data:
+            for i, row in enumerate(data, 1):
+                user_id = row[0]
+                name = html.escape(row[1]) if row[1] and row[1] != "Oyuncu" else "İsimsiz"
+                # İSİMLER ARTIK TIKLANABİLİR BAĞLANTI (USER LINK)
+                txt += f"<b>{i}.</b> <a href='tg://user?id={user_id}'>{name}</a> (ID: <code>{user_id}</code>)\n   └ 👥 {row[2]} Davet\n"
+        else:
+            txt += "📭 Henüz veri yok (Kimse referans yapmadı)."
+        
+        txt += "\n⚠️ <i>'Yarışmayı Sıfırla' derseniz, bu liste sıfırlanır ancak ana menüdeki toplam referans sayıları silinmez.</i>"
+        
+        kb = [
+            [InlineKeyboardButton("🔄 Yarışmayı Sıfırla", callback_data="adm_reset_contest")],
+            [InlineKeyboardButton("🔙 Geri", callback_data="menu_admin")]
+        ]
+        await q.edit_message_text(txt, reply_markup=InlineKeyboardMarkup(kb), parse_mode=ParseMode.HTML)
+        return ADMIN_PANEL
+
+    if d == "adm_reset_contest":
+        reset_contest_stats()
+        await q.answer("✅ Yarışma istatistikleri sıfırlandı!", show_alert=True)
+        return await admin_menu(update, context)
+        
+    if d == "adm_set_contest_ref":
+        await q.edit_message_text(f"{E_WRITE} <b>YARIŞMA PUANI DÜZENLE</b>\n\nLütfen puanını değiştirmek istediğiniz kullanıcının ID'sini girin:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Geri", callback_data="menu_admin")]]), parse_mode=ParseMode.HTML)
+        return ADMIN_SET_CONTEST_ID
+    
+    if d == "adm_set_withdraw_text":
+        current_text = get_withdraw_text_from_db()
+        await q.edit_message_text(f"💱 <b>ÇEKİM YAZISINI DÜZENLE</b>\n\nŞu anki yazı:\n<blockquote>{html.escape(current_text)}</blockquote>\n\nLütfen yeni yazıyı gönderin:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Geri", callback_data="menu_admin")]]), parse_mode=ParseMode.HTML)
+        return ADMIN_SET_WITHDRAW_TEXT_INPUT
+
+    if d == "adm_top10_rich":
+        data = get_top10_richest()
+        txt = f"🏆 <b>EN ZENGİN 10 KULLANICI</b>\n\n"
+        if data:
+            for i, row in enumerate(data, 1):
+                name = html.escape(row[1]) if row[1] else "NoName"
+                txt += f"<b>{i}.</b> {name} (ID: <code>{row[0]}</code>)\n   └ 💰 {row[2]:.2f}\n"
+        else: txt += "Veri yok."
+        await q.edit_message_text(txt, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Geri", callback_data="menu_admin")]]), parse_mode=ParseMode.HTML)
+        return ADMIN_PANEL
+
+    if d == "adm_reset_limit_one":
+        await q.edit_message_text(f"{E_REFRESH} <b>KULLANICI FREE HAKKI SIFIRLAMA</b>\n\nLütfen limitini sıfırlamak istediğiniz kullanıcının ID'sini yazın:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Geri", callback_data="menu_admin")]]), parse_mode=ParseMode.HTML)
+        return ADMIN_RESET_LIMIT_ID
+
+    if d.startswith("pay_"):
+        _, u_id, amt, w_type = d.split("_"); u_id = int(u_id); amt = float(amt)
+        if w_type == 't':
+            user_obj = await context.bot.get_chat(u_id)
+            user_display = f"@{user_obj.username}" if user_obj.username else f"{user_obj.first_name}"
+            tmt_val = amt / 5
+            await context.bot.send_message(u_id, f"✅ <b>Ödemeniz Yapıldı (TMT)</b>\n\nÖdenen: <code>{tmt_val:.2f}</code> TMT (Hesabınıza Gönderildi)", parse_mode=ParseMode.HTML)
+            channel_msg = (f"✅ ÖDEME YAPILDI (TMT)\n\n👤 Kullanıcı: {user_display}\n🆔 ID: {u_id}\n💰 Tutar: {int(tmt_val)} tmt 💸\n🏦 Yöntem: TMT Transferi\n\n🤖 Bot: @{context.bot.username}")
+            try: await context.bot.send_message(PROOF_CHANNEL_ID, channel_msg)
+            except Exception as e: await context.bot.send_message(ADMIN_ID, f"Kanala bildirim atılamadı: {e}")
+            await q.edit_message_text(f"{E_CHECK} TMT Ödemesi Tamamlandı ve Bildirim Gönderildi.")
+            return ADMIN_PANEL
+        elif w_type == 's':
+            context.user_data['pending_pay'] = {'uid': u_id, 'amt': amt}
+            await context.bot.send_message(ADMIN_ID, f"{E_WRITE} <b>Star ödemesi kanıtı FOTOĞRAFI gönderin:</b>", parse_mode=ParseMode.HTML)
+            return ADMIN_WAIT_PROOF
+            
+    if d.startswith("reject_"):
+        _, u, a = d.split("_"); update_bal(int(u), float(a)); update_withdrawn(int(u), -float(a))
+        await context.bot.send_message(int(u), f"{E_CROSS} <b>Çekim Reddedildi</b>\n\nİade Edilen: <code>{a}</code> HappStar", parse_mode=ParseMode.HTML)
+        await q.edit_message_text(f"{E_CROSS} Reddedildi.")
+        return ADMIN_PANEL
+    
+    if d.startswith("adm_del_sub_"):
+        try:
+            parts = d.split("_")
+            sub_id_to_del = int(parts[3])
+            user_id_refresh = int(parts[4])
+            
+            sub = get_subscription_detail(sub_id_to_del)
+            if sub:
+                m_username = sub[4]
+                delete_vpn_user_api(m_username) # Panelden sil
+                delete_subscription(sub_id_to_del) # DB'den sil
+                await q.answer("VPN Paketi silindi!", show_alert=True)
+                return await admin_query_refresh(update, context, user_id_refresh)
+            else:
+                await q.answer("Paket zaten silinmiş.", show_alert=True)
+                return ADMIN_PANEL
+        except Exception as e:
+            await q.answer(f"Hata: {e}", show_alert=True)
+            return ADMIN_PANEL
+        
+    if d == "adm_settings": return await text_input_step(q, "Yeni Panel URL:", ADMIN_SET_URL)
+    if d == "adm_query": return await text_input_step(q, "Sorgulanacak Kullanıcı ID:", ADMIN_QUERY_ID)
+    if d == "adm_msg_id": return await text_input_step(q, "Kullanıcı ID:", ADMIN_MSG_ID_INPUT)
+    if d == "adm_ban": return await text_input_step(q, "Banlanacak ID:", ADMIN_BAN_INPUT)
+    if d == "adm_unban": return await text_input_step(q, "Açılacak ID:", ADMIN_UNBAN_INPUT)
+    if d == "adm_money": return await text_input_step(q, "User ID:", ADMIN_ID_INPUT)
+    if d == "adm_add_support": return await text_input_step(q, "Eklenecek Kullanıcı ID:", ADMIN_ADD_SUPPORT)
+    if d == "adm_rem_support": return await text_input_step(q, "Çıkarılacak Kullanıcı ID:", ADMIN_REM_SUPPORT)
+    
+    if d == "adm_set_ref":
+        await q.edit_message_text(f"{E_WRITE} <b>REFERANS DÜZENLEME (GENEL)</b>\n\nLütfen referans sayısını değiştirmek istediğiniz kullanıcının ID'sini girin:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Geri", callback_data="menu_admin")]]), parse_mode=ParseMode.HTML)
+        return ADMIN_SET_REF_ID
+        
+    if d == "adm_reset_user":
+        await q.edit_message_text(f"🗑️ <b>KULLANICI SIFIRLA</b>\n\nSilmek istediğiniz kullanıcının ID'sini yazın.\n<i>(Not: Bu işlem geri alınamaz.)</i>", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Geri", callback_data="menu_admin")]]), parse_mode=ParseMode.HTML)
+        return ADMIN_RESET_USER_INPUT
+        
+    if d == "adm_stats":
+        u_count, t_bal, t_subs, a_subs = get_stats()
+        msg = (f"{E_CHART} <b>PREMIUM İSTATİSTİKLER</b>\n\n<blockquote>👥 <b>Toplam Üye:</b> {u_count}\n💰 <b>Dağıtılan Bakiye:</b> {t_bal:.2f} HappStar\n📦 <b>Toplam VPN Paketi:</b> {t_subs}\n🟢 <b>Aktif Kullanıcılar:</b> {a_subs}</blockquote>")
+        await q.edit_message_text(msg, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Geri", callback_data="menu_admin")]]), parse_mode=ParseMode.HTML); return ADMIN_PANEL
+        
+    if d == "adm_broad":
+        await q.edit_message_text("📢 <b>Duyuru Metni/Fotoğrafı:</b>\n\n<i>İster metin, ister fotoğraflı metin gönderin.</i>", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Geri", callback_data="menu_admin")]]), parse_mode=ParseMode.HTML); return ADMIN_BROADCAST
+        
+    if d == "adm_reset_free":
+        reset_all_free_claims()
+        await q.edit_message_text("Sıfırlandı.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Geri", callback_data="menu_admin")]])); return ADMIN_PANEL
+        
+    if d == "menu_admin": return await admin_menu(update, context)
+    return await show_menu(update, context)
+
+async def admin_set_withdraw_text_process(update, context):
+    try:
+        new_text = update.message.text
+        update_withdraw_text_db(new_text)
+        await update.message.reply_text(f"✅ <b>BAŞARILI</b>\n\nÇekim bilgilendirme yazısı güncellendi.", parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Panele Dön", callback_data="menu_admin")]]))
+    except Exception as e:
+        await update.message.reply_text(f"❌ Hata: {e}")
+    return ADMIN_PANEL
+
+async def admin_reset_limit_id_process(update, context):
+    try:
+        target_id = int(update.message.text)
+        reset_user_free_claim(target_id)
+        await update.message.reply_text(f"✅ <b>BAŞARILI</b>\n\nKullanıcı ID {target_id} için 24 saatlik limit sıfırlandı.", parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Panele Dön", callback_data="menu_admin")]]))
+    except Exception as e:
+        await update.message.reply_text(f"❌ Hata: {e}")
+    return ADMIN_PANEL
+
+async def admin_reset_user_process(update, context):
+    try:
+        target_id = int(update.message.text)
+        delete_user_fully(target_id)
+        await update.message.reply_text(f"✅ <b>BAŞARILI</b>\n\nKullanıcı ID {target_id} tamamen silindi.", parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Panele Dön", callback_data="menu_admin")]]))
+    except Exception as e:
+        await update.message.reply_text(f"❌ Hata: {e}")
+    return ADMIN_PANEL
+
+async def text_input_step(q, text, state):
+    await q.edit_message_text(f"{E_WRITE} <b>{text}</b>", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Geri", callback_data="menu_admin")]]), parse_mode=ParseMode.HTML)
+    return state
+
+async def admin_proof_handler(update, context):
+    if not update.message.photo: return ADMIN_WAIT_PROOF
+    pending = context.user_data.get('pending_pay')
+    if not pending: return ADMIN_PANEL
+    u_id = pending['uid']; amt = pending['amt']
+    photo_id = update.message.photo[-1].file_id
+    try: user_obj = await context.bot.get_chat(u_id); username = f"@{user_obj.username}" if user_obj.username else "Yok"
+    except: username = "@Unknown"
+    caption_text = (f"✅ <b>ÖDEME TAMAMLANDI!</b>\n\n👤 <b>Kullanıcı:</b> {username}\n🆔 <b>ID:</b> <code>{u_id}</code>\n💰 <b>Miktar:</b> <code>{int(amt)}</code> HappStar 🌟\n🎁 <b>Ödeme Türü:</b> Telegram Stars\n\n🤖 <b>Bot:</b> @{context.bot.username}")
+    try: await context.bot.send_photo(PROOF_CHANNEL_ID, photo_id, caption=caption_text, parse_mode=ParseMode.HTML)
+    except Exception as e: await update.message.reply_text(f"Kanala gönderilemedi: {e}")
+    await context.bot.send_message(u_id, f"✅ <b>Ödemeniz Onaylandı!</b>\n\n<code>{int(amt)}</code> HappStar hesabınıza gönderildi. Kanıt kanalımızda yayınlandı.", parse_mode=ParseMode.HTML)
+    await update.message.reply_text("İşlem tamamlandı.")
+    return ADMIN_PANEL
+
+async def admin_set_url(update, context): context.user_data['new_p_url'] = update.message.text; await update.message.reply_text("Kullanıcı Adı:"); return ADMIN_SET_USER
+async def admin_set_user(update, context): context.user_data['new_p_user'] = update.message.text; await update.message.reply_text("Şifre:"); return ADMIN_SET_PASS
+async def admin_set_pass(update, context): update_panel_settings(context.user_data['new_p_url'], context.user_data['new_p_user'], update.message.text); await update.message.reply_text("Kaydedildi."); return ADMIN_PANEL
+
+async def admin_query_refresh(update, context, uid):
+    u, _ = get_user(uid)
+    subs = get_user_subscriptions(uid)
+    sub_txt = f"{len(subs)} Paket" if subs else "Yok"
+    
+    msg = (f"🔍 <b>KULLANICI DETAYI</b>\n\n"
+           f"👤 <b>İsim:</b> {html.escape(u['name'])}\n"
+           f"🆔 <b>ID:</b> <code>{uid}</code>\n"
+           f"💰 <b>Bakiye:</b> {u['balance']:.2f}\n"
+           f"🎮 <b>Win/Loss:</b> {u['wins']} / {u['losses']}\n"
+           f"💵 <b>Toplam Kazanılan:</b> {u['total_earned']:.2f}\n"
+           f"👥 <b>Davet (Toplam):</b> {u.get('invited', 0)}\n"
+           f"🏆 <b>Davet (Yarışma):</b> {u.get('contest_invites', 0)}\n"
+           f"📦 <b>VPN:</b> {sub_txt}\n"
+           f"🚫 <b>Ban:</b> {'Evet' if u['is_banned'] else 'Hayır'}")
+    
+    kb = []
+    if subs:
+        for s in subs:
+            btn_text = f"🗑️ Sil: {s[1]} ({s[2]}GB)"
+            kb.append([InlineKeyboardButton(btn_text, callback_data=f"adm_del_sub_{s[0]}_{uid}")])
+            
+    kb.append([InlineKeyboardButton("Geri", callback_data="menu_admin")])
+
+    if update.message:
+        await update.message.reply_text(msg, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(kb))
+    else:
+        await update.callback_query.edit_message_text(msg, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(kb))
+    return ADMIN_PANEL
+
+async def admin_query_id_process(update, context):
+    try:
+        uid = int(update.message.text)
+        return await admin_query_refresh(update, context, uid)
+    except Exception as e:
+        await update.message.reply_text(f"Hata: {e}")
+        return ADMIN_PANEL
+
+async def admin_broadcast(update, context):
+    users = get_all_users()
+    count = 0
+    for uid in users:
+        try:
+            if update.message.photo: 
+                await context.bot.send_photo(uid, update.message.photo[-1].file_id, caption=update.message.caption, parse_mode=ParseMode.HTML)
+            elif update.message.text: 
+                await context.bot.send_message(uid, update.message.text, parse_mode=ParseMode.HTML)
+            count += 1
+        except Exception: pass
+    await update.message.reply_text(f"Tamamlandı. {count} kişiye iletildi."); return ADMIN_PANEL
+
+async def admin_ban_process(update, context): set_ban_status(int(update.message.text), 1); await update.message.reply_text("Banlandı."); return ADMIN_PANEL
+async def admin_unban_process(update, context): set_ban_status(int(update.message.text), 0); await update.message.reply_text("Açıldı."); return ADMIN_PANEL
+async def admin_id_in(update, context): context.user_data['t_id'] = int(update.message.text); await update.message.reply_text("Tutar (+/-):"); return ADMIN_AMT_INPUT
+async def admin_amt_in(update, context): update_bal(context.user_data['t_id'], float(update.message.text)); await update.message.reply_text("Güncellendi."); return MENU
+async def admin_msg_id_input(update, context): context.user_data['msg_target_id'] = int(update.message.text); await update.message.reply_text("Mesaj:"); return ADMIN_MSG_TEXT_INPUT
+
+async def admin_msg_text_input(update, context):
+    try:
+        msg = (f"🗣️ <b>Administrator</b>\n\n"
+               f"{update.message.text}")
+        await context.bot.send_message(context.user_data['msg_target_id'], msg, parse_mode=ParseMode.HTML)
+        await update.message.reply_text("Gönderildi.")
+    except Exception as e:
+        await update.message.reply_text(f"Hata: {e}")
+    return ADMIN_PANEL
+
+async def add_support_admin_process(update, context):
+    try: uid = int(update.message.text); add_support_admin(uid); await update.message.reply_text(f"✅ ID {uid} Support Admin olarak eklendi.")
+    except: await update.message.reply_text("Hata.")
+    return ADMIN_PANEL
+
+async def remove_support_admin_process(update, context):
+    try: uid = int(update.message.text); remove_support_admin(uid); await update.message.reply_text(f"✅ ID {uid} Support Adminlikten çıkarıldı.")
+    except: await update.message.reply_text("Hata.")
+    return ADMIN_PANEL
+
+async def admin_set_ref_id_process(update, context):
+    try: target_id = int(update.message.text); context.user_data['target_ref_id'] = target_id; await update.message.reply_text(f"🆔 <b>Hedef ID:</b> {target_id}\n\nYeni davet sayısını girin (Örn: 50):", parse_mode=ParseMode.HTML); return ADMIN_SET_REF_COUNT
+    except: await update.message.reply_text("❌ Geçersiz ID. Tekrar deneyin."); return ADMIN_SET_REF_ID
+
+async def admin_set_ref_count_process(update, context):
+    try: new_count = int(update.message.text); target_id = context.user_data.get('target_ref_id'); admin_set_user_invites(target_id, new_count); await update.message.reply_text(f"✅ <b>BAŞARILI</b>\n\nKullanıcı ID {target_id} davet sayısı {new_count} olarak güncellendi.", parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Panele Dön", callback_data="menu_admin")]])); return ADMIN_PANEL
+    except Exception as e: await update.message.reply_text(f"❌ Hata: {e}"); return ADMIN_PANEL
+
+async def admin_set_contest_id_process(update, context):
+    try: target_id = int(update.message.text); context.user_data['target_contest_id'] = target_id; await update.message.reply_text(f"🆔 <b>Hedef ID (Yarışma):</b> {target_id}\n\nYeni yarışma puanını girin:", parse_mode=ParseMode.HTML); return ADMIN_SET_CONTEST_COUNT
+    except: await update.message.reply_text("❌ Geçersiz ID. Tekrar deneyin."); return ADMIN_SET_CONTEST_ID
+
+async def admin_set_contest_count_process(update, context):
+    try: 
+        new_count = int(update.message.text)
+        target_id = context.user_data.get('target_contest_id')
+        admin_set_contest_invites(target_id, new_count)
+        await update.message.reply_text(f"✅ <b>BAŞARILI</b>\n\nKullanıcı ID {target_id} yarışma puanı {new_count} olarak güncellendi.", parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Panele Dön", callback_data="menu_admin")]]) )
+        return ADMIN_PANEL
+    except Exception as e: await update.message.reply_text(f"❌ Hata: {e}"); return ADMIN_PANEL
+
+
+# --- TICKET LOOP SİSTEMİ ---
+async def support_msg(update, context):
+    user_id = update.effective_user.id
+    user_name = update.effective_user.first_name
+    recipients = [ADMIN_ID] + get_support_admins()
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton("Cevapla", callback_data=f"replyuser_{user_id}")]])
+    info_header = (f"📞 <b>YENİ DESTEK MESAJI</b>\n👤 <b>Kimden:</b> <a href='tg://user?id={user_id}'>{html.escape(user_name)}</a>\n🆔 <b>ID:</b> <code>{user_id}</code>")
+    if update.message.photo:
+        photo_id = update.message.photo[-1].file_id; caption = update.message.caption if update.message.caption else ""
+        final_caption = f"{info_header}\n\n💬 <b>Mesaj:</b> {html.escape(caption)}"
+        for admin_id in recipients:
+            try: await context.bot.send_photo(chat_id=admin_id, photo=photo_id, caption=final_caption, parse_mode=ParseMode.HTML, reply_markup=kb)
+            except: pass
+    else:
+        msg_text = update.message.text if update.message.text else "Dosya/Sticker"
+        final_msg = f"{info_header}\n\n💬 <b>Mesaj:</b>\n<blockquote>{html.escape(msg_text)}</blockquote>"
+        for admin_id in recipients:
+            try: await context.bot.send_message(chat_id=admin_id, text=final_msg, parse_mode=ParseMode.HTML, reply_markup=kb)
+            except: pass
+    close_kb = InlineKeyboardMarkup([[InlineKeyboardButton("🚫 Tiketi Kapat (Menü)", callback_data="end_ticket")]])
+    await update.message.reply_text(f"{E_CHECK} <b>İletildi!</b> Cevap bekleyebilir veya yazmaya devam edebilirsiniz.", parse_mode=ParseMode.HTML, reply_markup=close_kb)
+    return SUPPORT_USER
+
+async def admin_reply_click(update, context):
+    uid = update.effective_user.id
+    if uid != ADMIN_ID and uid not in get_support_admins(): await update.callback_query.answer("Yetkiniz yok.", show_alert=True); return
+    target_id = int(update.callback_query.data.split("_")[1])
+    context.user_data['reply_target'] = target_id
+    exit_kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Çıkış (Panel)", callback_data="admin_exit_reply")]])
+    await update.callback_query.message.reply_text(f"{E_WRITE} <b>Kullanıcı ID: {target_id}</b>\n\n<i>Cevabınızı yazın. (Moddan çıkana kadar yazabilirsiniz)</i>", parse_mode=ParseMode.HTML, reply_markup=exit_kb)
+    return SUPPORT_ADMIN
+
+async def admin_reply_send(update, context):
+    target_id = context.user_data.get('reply_target')
+    if not target_id: await update.message.reply_text("Hata: Kullanıcı bulunamadı."); return ADMIN_PANEL
+    kb_for_user = InlineKeyboardMarkup([[InlineKeyboardButton(f"{E_REPLY} Cevap Yaz", callback_data="start_ticket")]])
+    msg_to_send = f"📞 <b>DESTEK EKİBİ</b>\n\n{update.message.text}"
+    try:
+        await context.bot.send_message(target_id, msg_to_send, parse_mode=ParseMode.HTML, reply_markup=kb_for_user)
+        exit_kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Çıkış (Panel)", callback_data="admin_exit_reply")]])
+        await update.message.reply_text("✅ <b>Gönderildi.</b> Devam edebilirsiniz.", parse_mode=ParseMode.HTML, reply_markup=exit_kb)
+    except Exception as e:
+        await update.message.reply_text(f"❌ Gönderilemedi: {e}")
+    return SUPPORT_ADMIN
+
+async def admin_exit_reply_process(update, context):
+    q = update.callback_query; await q.answer("Sohbetten çıkıldı.")
+    return await admin_menu(update, context)
+
+if __name__ == '__main__':
+    init_db()
+    app = ApplicationBuilder().token(TOKEN).build()
+    
+    if app.job_queue:
+        app.job_queue.run_repeating(check_data_usage, interval=300, first=10)
+        
+    pay_handler = CallbackQueryHandler(admin_action, pattern="^(pay|reject)_")
+    admin_vpn_del_handler = CallbackQueryHandler(admin_action, pattern="^adm_del_sub_")
+    
+    back_handler = CallbackQueryHandler(show_menu, pattern="^back_start")
+    admin_reply_handler = CallbackQueryHandler(admin_reply_click, pattern="^replyuser_")
+    admin_exit_handler = CallbackQueryHandler(admin_exit_reply_process, pattern="^admin_exit_reply")
+    ticket_end_handler = CallbackQueryHandler(end_ticket_process, pattern="^end_ticket")
+    ticket_start_handler = CallbackQueryHandler(start_ticket_process, pattern="^start_ticket")
+    
+    conv = ConversationHandler(
+        entry_points=[CommandHandler('start', start), pay_handler, ticket_start_handler, admin_reply_handler],
+        states={
+            MENU: [CallbackQueryHandler(menu_nav, pattern="^menu_"), CallbackQueryHandler(vpn_menu, pattern="^menu_vpn"), 
+                   CallbackQueryHandler(buy_vpn_process, pattern="^buyvpn_"), CallbackQueryHandler(bet_process, pattern="^bet_"), 
+                   pay_handler, CallbackQueryHandler(send_invoice_handler, pattern="^buy_"), back_handler, 
+                   CallbackQueryHandler(show_my_servers, pattern="^(my_servers|my_servers_)"), 
+                   CallbackQueryHandler(view_subscription_detail, pattern="^viewsub_"), 
+                   CallbackQueryHandler(ask_delete_confirmation, pattern="^askdel_"), 
+                   CallbackQueryHandler(delete_subscription_process, pattern="^confdelsub_"), 
+                   admin_reply_handler, ticket_start_handler],
+            CAPTCHA: [MessageHandler(filters.TEXT, captcha_check)],
+            CHANNEL_CHECK_WAIT: [CallbackQueryHandler(channel_check_callback, pattern="^check_join_status"), MessageHandler(filters.ALL, check_channel_subscription)],
+            DEPOSIT_AMT_INPUT: [MessageHandler(filters.TEXT, deposit_custom_input), back_handler],
+            GAME_SELECTION: [CallbackQueryHandler(game_selection), back_handler],
+            BET_SELECTION: [CallbackQueryHandler(bet_process), back_handler],
+            CUSTOM_BET: [MessageHandler(filters.TEXT, custom_bet_process), back_handler],
+            MINES_LOOP: [CallbackQueryHandler(mines_loop), back_handler],
+            BALLOON_LOOP: [CallbackQueryHandler(balloon_loop), back_handler],
+            ROULETTE_SELECTION: [CallbackQueryHandler(specialized_game_choice, pattern="^bet_roulette_"), back_handler],
+            RPS_SELECTION: [CallbackQueryHandler(specialized_game_choice, pattern="^bet_rps_"), back_handler],
+            WITHDRAW_METHOD: [CallbackQueryHandler(withdraw_method_choice, pattern="^w_method_"), back_handler],
+            WITHDRAW_AMT: [MessageHandler(filters.TEXT, withdraw_amt), back_handler],
+            WITHDRAW_NUM: [MessageHandler(filters.TEXT, withdraw_num), back_handler],
+            SUPPORT_USER: [MessageHandler(filters.TEXT | filters.PHOTO, support_msg), ticket_end_handler, back_handler],
+            SUPPORT_ADMIN: [MessageHandler(filters.TEXT | filters.PHOTO, admin_reply_send), admin_exit_handler],
+            ADMIN_PANEL: [admin_reply_handler, admin_vpn_del_handler, CallbackQueryHandler(admin_action)],
+            ADMIN_BROADCAST: [MessageHandler(filters.TEXT | filters.PHOTO | filters.CAPTION, admin_broadcast)],
+            ADMIN_ID_INPUT: [MessageHandler(filters.TEXT, admin_id_in)],
+            ADMIN_AMT_INPUT: [MessageHandler(filters.TEXT, admin_amt_in)],
+            ADMIN_MSG_ID_INPUT: [MessageHandler(filters.TEXT, admin_msg_id_input), back_handler],
+            ADMIN_MSG_TEXT_INPUT: [MessageHandler(filters.TEXT, admin_msg_text_input)],
+            ADMIN_BAN_INPUT: [MessageHandler(filters.TEXT, admin_ban_process)],
+            ADMIN_UNBAN_INPUT: [MessageHandler(filters.TEXT, admin_unban_process)],
+            ADMIN_SET_URL: [MessageHandler(filters.TEXT, admin_set_url)],
+            ADMIN_SET_USER: [MessageHandler(filters.TEXT, admin_set_user)],
+            ADMIN_SET_PASS: [MessageHandler(filters.TEXT, admin_set_pass)],
+            ADMIN_QUERY_ID: [MessageHandler(filters.TEXT, admin_query_id_process)],
+            ADMIN_WAIT_PROOF: [MessageHandler(filters.PHOTO, admin_proof_handler)],
+            ADMIN_ADD_SUPPORT: [MessageHandler(filters.TEXT, add_support_admin_process)],
+            ADMIN_REM_SUPPORT: [MessageHandler(filters.TEXT, remove_support_admin_process)],
+            ADMIN_RESET_USER_INPUT: [MessageHandler(filters.TEXT, admin_reset_user_process), back_handler],
+            ADMIN_SET_REF_ID: [MessageHandler(filters.TEXT, admin_set_ref_id_process)],
+            ADMIN_SET_REF_COUNT: [MessageHandler(filters.TEXT, admin_set_ref_count_process)],
+            ADMIN_RESET_LIMIT_ID: [MessageHandler(filters.TEXT, admin_reset_limit_id_process)],
+            ADMIN_SET_CONTEST_ID: [MessageHandler(filters.TEXT, admin_set_contest_id_process)],
+            ADMIN_SET_CONTEST_COUNT: [MessageHandler(filters.TEXT, admin_set_contest_count_process)],
+            ADMIN_SET_WITHDRAW_TEXT_INPUT: [MessageHandler(filters.TEXT, admin_set_withdraw_text_process)]
+        },
+        fallbacks=[CommandHandler('start', start)]
+    )
+    
+    app.add_handler(conv)
+    app.add_handler(PreCheckoutQueryHandler(precheckout_callback))
+    app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment_callback))
+    
+    print("Bot Başlatıldı (Ref Yarışması Fix + Dinamik Çekim Yazısı)")
+    app.run_polling()
