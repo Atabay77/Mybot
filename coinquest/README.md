@@ -1,7 +1,7 @@
 # 🏰 CoinQuest — Telegram Oyun Botu
 
 Oyun oyna → coin kazan → **gerçek paraya çevir**.
-Her şey **butonlarla** yapılır, kullanıcı komut yazmaz.
+Her şey **ekrandaki (inline) butonlarla** yapılır, kullanıcı komut yazmaz.
 **3 dil:** 🇹🇲 Türkmençe (varsayılan) · 🇷🇺 Русский · 🇹🇷 Türkçe
 
 ---
@@ -47,7 +47,7 @@ Oyuncu coin toplar, **💵 Para Çek** butonundan coinini paraya çevirir.
 
 | Ayar | Değer | Nerede değişir |
 |---|---|---|
-| 1 TMT | 1.000.000 coin | `config.py` → `COINS_PER_MONEY` |
+| 1 TMT | 100.000 coin | `config.py` → `COINS_PER_MONEY` |
 | Günlük çevirme limiti | 0.70 TMT | `config.py` → `DAILY_MONEY_CAP` |
 | En az çekim | 5 TMT | `config.py` → `MIN_WITHDRAW` |
 | Gereken seviye | 10 | `config.py` → `WITHDRAW_MIN_LEVEL` |
@@ -82,10 +82,16 @@ Resim yoksa sadece yazı gider, hata olmaz.
 (jpg/png/webp, önerilen 1280x720)
 
 ```bash
-# bilgisayarından sunucuya resim atmak için:
+# BİLGİSAYARINDAN sunucuya atmak için (kendi bilgisayarında çalıştır):
 scp menu.jpg root@SUNUCU_IP:/opt/coinquest/images/
+
+# Resimler zaten sunucudaysa (örn. /root içinde), sadece taşı:
+mkdir -p /opt/coinquest/images && mv /root/*.jpg /opt/coinquest/images/
 systemctl restart coinquest
 ```
+Bot resimleri şu klasörlerde arar: `.env` içindeki `IMAGES_DIR` →
+`/opt/coinquest/images` → `/root/images` → `/root`.
+Açılış logunda hangilerini bulduğunu yazar.
 
 ---
 

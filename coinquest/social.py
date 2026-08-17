@@ -546,8 +546,10 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         unlocked = events.check_achievements(user_id)
         if unlocked:
             msg += "\n\n🏅 <b>YENİ BAŞARIM!</b>\n" + "\n".join(unlocked)
-        await ui.safe_edit(query, msg, ui.kb([
-            [("⏰ Saatlik Bonus", "s:hourly")], [("🏠 Menü", "m:main")]]))
+        lang = i18n.lang_of(user_id)
+        await ui.nav(query, "daily", msg, ui.kb([
+            [(i18n.t(lang, "b_play"), "g:menu"), (i18n.t(lang, "b_money"), "cash:menu")],
+            [(i18n.t(lang, "b_home"), "m:main")]]))
     elif action == "hourly":
         await ui.safe_edit(query, hourly(user_id), ui.kb([
             [("🎁 Günlük Ödül", "s:daily")], [("🏠 Menü", "m:main")]]))
@@ -587,7 +589,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await ui.safe_edit(query, ref_text(user_id), ui.back_kb("m:main"))
     elif action == "help":
         lang = i18n.lang_of(user_id)
-        await ui.safe_edit(query, help_text(lang), ui.kb([
+        await ui.nav(query, "help", help_text(lang), ui.kb([
             [(i18n.t(lang, "b_play"), "g:menu"), (i18n.t(lang, "b_money"), "cash:menu")],
             [(i18n.t(lang, "b_home"), "m:main")]]))
     elif action == "earn":

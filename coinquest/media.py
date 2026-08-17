@@ -18,9 +18,20 @@ aşağıdaki adlarla koymak. Bot açılışta bulur, yoksa sadece yazı gönderi
 import logging
 import pathlib
 
+import config
+
 log = logging.getLogger(__name__)
 
-DIR = pathlib.Path(__file__).resolve().parent / "images"
+_HERE = pathlib.Path(__file__).resolve().parent
+# Resimler önce ayarlanan klasörde, sonra bilinen yerlerde aranır.
+DIRS = [d for d in [
+    pathlib.Path(config.IMAGES_DIR) if config.IMAGES_DIR else None,
+    _HERE / "images",
+    pathlib.Path("/opt/coinquest/images"),
+    pathlib.Path("/root/images"),
+    pathlib.Path("/root"),
+] if d]
+DIR = DIRS[0] if config.IMAGES_DIR else _HERE / "images"
 EXTS = (".jpg", ".jpeg", ".png", ".webp")
 
 SCREENS = {
@@ -43,12 +54,18 @@ _file_ids: dict[str, str] = {}
 def path(screen: str):
     """Ekrana ait resim dosyasını döner, yoksa None."""
     name = SCREENS.get(screen)
-    if not name or not DIR.is_dir():
+    if not name:
         return None
-    for ext in EXTS:
-        candidate = DIR / f"{name}{ext}"
-        if candidate.is_file():
-            return candidate
+    for folder in DIRS:
+        try:
+            if not folder.is_dir():
+                continue
+        except OSError:
+            continue
+        for ext in EXTS:
+            candidate = folder / f"{name}{ext}"
+            if candidate.is_file():
+                return candidate
     return None
 
 

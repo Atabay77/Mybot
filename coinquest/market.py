@@ -576,7 +576,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
 
     if action == "menu":
-        await ui.safe_edit(query, market_text(user), market_kb())
+        await ui.nav(query, "market", market_text(user), market_kb())
     elif action == "cat":
         kind = parts[2]
         await ui.safe_edit(query, cat_text(kind, user), cat_kb(kind, user))

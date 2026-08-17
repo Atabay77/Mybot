@@ -184,7 +184,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     user = db.get_user(user_id)
 
     if action == "menu":
-        await ui.safe_edit(query, panel_text(user_id), panel_kb(user_id))
+        await ui.nav(query, "cash", panel_text(user_id), panel_kb(user_id))
 
     elif action == "none":
         await query.answer(i18n.t(lang, "m_cap_hit"), show_alert=True)

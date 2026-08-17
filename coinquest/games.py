@@ -1115,7 +1115,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     lang = i18n.lang_of(user_id)
     if action == "menu":
         clear_sessions(context)
-        await ui.safe_edit(query, games_menu_text(user, lang), games_menu_kb(lang))
+        await ui.nav(query, "games", games_menu_text(user, lang), games_menu_kb(lang))
         return
     if action == "cat":
         clear_sessions(context)

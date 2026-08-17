@@ -475,7 +475,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         boss = active_boss()
         rows = [[("⚔️ SALDIR", "ev:hit")]] if boss else []
         rows.append([("🔄 Yenile", "ev:boss"), ("🏠 Menü", "m:main")])
-        await ui.safe_edit(query, boss_panel_text(boss), ui.kb(rows))
+        await ui.nav(query, "boss", boss_panel_text(boss), ui.kb(rows))
     elif action == "hit":
         res = attack_boss(user_id)
         if not res["ok"]:

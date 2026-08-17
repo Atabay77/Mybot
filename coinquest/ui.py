@@ -4,7 +4,8 @@ import html
 import time
 from typing import Iterable, Optional
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, Update
+from telegram import (InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove,
+                      Update)
 from telegram.constants import ParseMode
 from telegram.error import BadRequest
 
@@ -76,11 +77,14 @@ def kb(rows: Iterable[Iterable[tuple[str, str]]]) -> InlineKeyboardMarkup:
 
 
 def main_menu_kb(lang: str = i18n.DEFAULT) -> InlineKeyboardMarkup:
-    """Sade ana menü: 6 büyük düğme. Gerisi 'Başgalary' içinde."""
+    """Ana menü — sık kullanılanlar burada, gerisi 'Başgalary' içinde."""
     return kb([
         [(i18n.t(lang, "b_play"), "g:menu")],
         [(i18n.t(lang, "b_money"), "cash:menu")],
         [(i18n.t(lang, "b_gift"), "s:daily"), (i18n.t(lang, "b_shop"), "mk:menu")],
+        [(i18n.t(lang, "b_duel"), "pvp:menu"), (i18n.t(lang, "b_boss"), "ev:boss")],
+        [(i18n.t(lang, "b_profile"), "s:profile"), (i18n.t(lang, "b_items"), "mk:inv")],
+        [(i18n.t(lang, "b_quests"), "ev:quests"), (i18n.t(lang, "b_top"), "s:top")],
         [(i18n.t(lang, "b_friends"), "s:ref"), (i18n.t(lang, "b_help"), "s:help")],
         [(i18n.t(lang, "b_more"), "m:more")],
     ])
@@ -88,12 +92,9 @@ def main_menu_kb(lang: str = i18n.DEFAULT) -> InlineKeyboardMarkup:
 
 def more_menu_kb(lang: str = i18n.DEFAULT) -> InlineKeyboardMarkup:
     return kb([
-        [(i18n.t(lang, "b_profile"), "s:profile"), (i18n.t(lang, "b_items"), "mk:inv")],
-        [(i18n.t(lang, "b_duel"), "pvp:menu"), (i18n.t(lang, "b_boss"), "ev:boss")],
         [(i18n.t(lang, "b_bank"), "s:bank"), (i18n.t(lang, "b_biz"), "mk:biz")],
         [(i18n.t(lang, "b_bazaar"), "mk:bazaar"), (i18n.t(lang, "b_clan"), "s:clan")],
-        [(i18n.t(lang, "b_quests"), "ev:quests"), (i18n.t(lang, "b_lottery"), "ev:lottery")],
-        [(i18n.t(lang, "b_top"), "s:top"), (i18n.t(lang, "b_lang"), "m:lang")],
+        [(i18n.t(lang, "b_lottery"), "ev:lottery"), (i18n.t(lang, "b_lang"), "m:lang")],
         [(i18n.t(lang, "b_home"), "m:main")],
     ])
 
@@ -103,15 +104,9 @@ def lang_kb() -> InlineKeyboardMarkup:
     return kb(rows)
 
 
-def bottom_kb(lang: str = i18n.DEFAULT) -> ReplyKeyboardMarkup:
-    """Ekranın altında sürekli duran butonlar — kimse komut yazmasın."""
-    rows = [
-        [i18n.t(lang, "b_play"), i18n.t(lang, "b_money")],
-        [i18n.t(lang, "b_gift"), i18n.t(lang, "b_shop")],
-        [i18n.t(lang, "b_items"), i18n.t(lang, "b_friends")],
-        [i18n.t(lang, "b_menu")],
-    ]
-    return ReplyKeyboardMarkup(rows, resize_keyboard=True, is_persistent=True)
+def remove_bottom() -> ReplyKeyboardRemove:
+    """Eski sürümden kalan alt klavyeyi temizler. Artık sadece inline buton var."""
+    return ReplyKeyboardRemove()
 
 
 def back_kb(target: str = "m:main", label: str = None, lang: str = i18n.DEFAULT) -> InlineKeyboardMarkup:
@@ -166,6 +161,35 @@ async def send(update: Update, text: str, reply_markup=None):
         text, reply_markup=reply_markup, parse_mode=ParseMode.HTML,
         disable_web_page_preview=True,
     )
+
+
+async def nav(query, key: str, text: str, reply_markup=None):
+    """Inline gezinme. Hedef ekranın resmi varsa eski mesajı silip fotoğraflı gönderir."""
+    want_photo = bool(key) and len(text) <= 1000 and (media.cached(key) or media.path(key))
+    has_photo = bool(getattr(query.message, "photo", None))
+    if not want_photo and not has_photo:
+        return await safe_edit(query, text, reply_markup)
+    chat = query.message.chat
+    try:
+        await query.message.delete()
+    except Exception:
+        pass
+    if want_photo:
+        file_id = media.cached(key)
+        try:
+            if file_id:
+                return await chat.send_photo(file_id, caption=text, parse_mode=ParseMode.HTML,
+                                             reply_markup=reply_markup)
+            with open(media.path(key), "rb") as fh:
+                msg = await chat.send_photo(fh, caption=text, parse_mode=ParseMode.HTML,
+                                            reply_markup=reply_markup)
+            if msg and msg.photo:
+                media.remember(key, msg.photo[-1].file_id)
+            return msg
+        except Exception:
+            pass
+    return await chat.send_message(text, parse_mode=ParseMode.HTML, reply_markup=reply_markup,
+                                   disable_web_page_preview=True)
 
 
 async def screen(update: Update, key: str, text: str, reply_markup=None):

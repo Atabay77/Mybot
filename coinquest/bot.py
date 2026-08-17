@@ -96,7 +96,11 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         ), ui.pm_link())
         return
     lang = i18n.lang_of(tg_user.id)
-    await update.effective_chat.send_message(i18n.t(lang, "ready"), reply_markup=ui.bottom_kb(lang))
+    try:                                   # eski alt klavyesi kalanlarda temizle
+        msg = await update.effective_chat.send_message("🏰", reply_markup=ui.remove_bottom())
+        await msg.delete()
+    except Exception:
+        pass
     await ui.screen(update, "menu", main_menu_text(user), ui.main_menu_kb(lang))
 
 
@@ -128,15 +132,12 @@ async def on_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         lang = parts[2]
         user = db.get_user(user_id)
         await query.answer(i18n.t(lang, "lang_ok"))
-        await context.bot.send_message(
-            query.message.chat_id, i18n.t(lang, "ready"),
-            reply_markup=ui.bottom_kb(lang))
         if not user["last_daily"] and user["games"] == 0:
             await context.bot.send_message(
                 query.message.chat_id,
                 i18n.t(lang, "welcome", coins=ui.fmt(config.START_COINS), gems=config.START_GEMS),
-                parse_mode=ParseMode.HTML)
-        await ui.safe_edit(query, main_menu_text(user), ui.main_menu_kb(lang))
+                parse_mode=ParseMode.HTML, reply_markup=ui.remove_bottom())
+        await ui.nav(query, "menu", main_menu_text(user), ui.main_menu_kb(lang))
         return
 
     if not ui.is_private(update):
@@ -146,7 +147,7 @@ async def on_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     if action == "main":
         games.clear_sessions(context)
         user = db.get_user(user_id)
-        await ui.safe_edit(query, main_menu_text(user), ui.main_menu_kb(lang))
+        await ui.nav(query, "menu", main_menu_text(user), ui.main_menu_kb(lang))
     elif action == "more":
         user = db.get_user(user_id)
         await ui.safe_edit(query, (

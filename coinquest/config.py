@@ -26,6 +26,8 @@ ADMIN_IDS = {
 }
 DB_PATH = os.environ.get("DB_PATH", str(pathlib.Path(__file__).resolve().parent / "coinquest.db"))
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
+# Ekran resimlerinin klasörü (.env içinden değiştirilebilir)
+IMAGES_DIR = os.environ.get("IMAGES_DIR", "").strip()
 
 # --- Ekonomi ayarları ---
 START_COINS = 2_500
@@ -66,7 +68,7 @@ BUSINESS_COLLECT_SEC = 4 * 3600
 # --- GERÇEK PARA (ÇEKİM) AYARLARI ---
 # Bakiye "kuruş" olarak tutulur: 100 = 1 TMT.  Böylece kuruş hassasiyeti kaybolmaz.
 MONEY_NAME = os.environ.get("MONEY_NAME", "TMT")   # para birimi adı
-COINS_PER_MONEY = 1_000_000        # 1 TMT kaç oyun coin'i eder
+COINS_PER_MONEY = 100_000          # 1 TMT kaç oyun coin'i eder
 DAILY_MONEY_CAP = 70               # günde en fazla 0.70 TMT çevrilebilir
 MIN_WITHDRAW = 500                 # en az 5.00 TMT çekilebilir
 WITHDRAW_MIN_LEVEL = 10            # çekim için gereken seviye

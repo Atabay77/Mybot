@@ -597,7 +597,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if action == "menu":
         await query.answer()
         private = ui.is_private(update)
-        await ui.safe_edit(query, pvp_menu_text(user, private), pvp_menu_kb(private))
+        await ui.nav(query, "duel", pvp_menu_text(user, private), pvp_menu_kb(private))
     elif action == "new":
         await query.answer()
         if ui.is_private(update):
