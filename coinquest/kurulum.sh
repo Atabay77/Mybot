@@ -21,6 +21,8 @@ python3 -m venv "$DIR/venv"
 "$DIR/venv/bin/pip" install -q --upgrade pip
 "$DIR/venv/bin/pip" install -q -r "$DIR/requirements.txt"
 
+systemctl daemon-reload
+
 if [ ! -f "$DIR/.env" ]; then
     cp "$DIR/.env.example" "$DIR/.env"
     echo ""
