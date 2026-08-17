@@ -151,7 +151,7 @@ async def _send(update: Update, text: str, kb=None):
 
 async def _reply(update: Update, text: str):
     if update.callback_query:
-        await update.callback_query.answer(text, show_alert=True)
+        await ui.answer(update.callback_query, text, alert=True)
         return None
     return await _send(update, text)
 
@@ -191,34 +191,34 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     user_id = update.effective_user.id
 
     if action == "menu":
-        await query.answer()
+        await ui.answer(query)
         await ui.safe_edit(query, party_menu_text(), party_menu_kb())
         return
     if action == "start":
-        await query.answer()
+        await ui.answer(query)
         await start_round(update, context, parts[2])
         return
     if action == "tap":
         token = parts[2]
         party = context.chat_data.get("party")
         if not party or party.get("token") != token or party.get("taken"):
-            await query.answer("Çok geç kaldın! 😅", show_alert=True)
+            await ui.answer(query, "Çok geç kaldın! 😅", alert=True)
             return
         if party["kind"] == "reflex" and time.time() - party["ts"] < 0.05:
-            await query.answer("Erken bastın!", show_alert=True)
+            await ui.answer(query, "Erken bastın!", alert=True)
             return
         party["taken"] = True
         context.chat_data.pop("party", None)
         user = db.get_user(user_id)
         if user is None:
-            await query.answer("Önce bota özelden /start yaz!", show_alert=True)
+            await ui.answer(query, "Önce bota özelden /start yaz!", alert=True)
             return
         reward = economy.payout(user, party["reward"])
         economy.add_coins(user_id, reward, "parti oyunu")
         economy.add_xp(user_id, 35)
         elapsed = time.time() - party["ts"]
         head = "⚡ <b>EN HIZLI SEN!</b>" if party["kind"] == "reflex" else "🗝 <b>SANDIK AÇILDI!</b>"
-        await query.answer(f"+{ui.fmt(reward)} altın! ({elapsed:.2f} sn)")
+        await ui.answer(query, f"+{ui.fmt(reward)} altın! ({elapsed:.2f} sn)")
         await ui.safe_edit(query, (
             f"{head}\n\n{ui.mention(user)} {elapsed:.2f} saniyede kaptı!\n"
             f"💰 +{ui.fmt(reward)} 🪙  ✨ +35 XP\n\nYeni tur: /parti"

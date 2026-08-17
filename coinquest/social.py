@@ -552,7 +552,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
               "bank": "🏦 Banka", "top": "🏆 Sıralama", "clan": "🏰 Klan",
               "ref": "👥 Davet linkin", "help": "❓ Yardım", "earn": "💸 Kazanma yolları",
               "ccreate": "🏰 Klan adı yaz", "cdonate": "💰 Miktar yaz"}
-    await query.answer(TOASTS.get(action, ""))
+    context.user_data["_toast"] = TOASTS.get(action, "")
     user = db.get_user(user_id)
     if user is None:
         await ui.safe_edit(query, "Önce botu yeniden başlat (/start).")
@@ -575,10 +575,10 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     elif action == "bank":
         await ui.safe_edit(query, bank_text(user_id), bank_kb())
     elif action == "dep":
-        await query.answer(deposit(user_id, parts[2]), show_alert=True)
+        await ui.answer(query, deposit(user_id, parts[2]), alert=True)
         await ui.safe_edit(query, bank_text(user_id), bank_kb())
     elif action == "wd":
-        await query.answer(withdraw(user_id, parts[2]), show_alert=True)
+        await ui.answer(query, withdraw(user_id, parts[2]), alert=True)
         await ui.safe_edit(query, bank_text(user_id), bank_kb())
     elif action == "top":
         kind = parts[2] if len(parts) > 2 else "rich"
@@ -592,11 +592,11 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             "Klan adını yaz (3-24 karakter). İptal: /iptal"
         ), ui.back_kb("s:clan"))
     elif action == "cjoin":
-        await query.answer(clan_join(user_id, int(parts[2])).replace("<b>", "").replace("</b>", ""),
-                           show_alert=True)
+        await ui.answer(query, clan_join(user_id, int(parts[2])).replace("<b>", "").replace("</b>", ""),
+                           alert=True)
         await ui.safe_edit(query, clan_text(user_id), clan_kb(user_id))
     elif action == "cleave":
-        await query.answer(clan_leave(user_id), show_alert=True)
+        await ui.answer(query, clan_leave(user_id), alert=True)
         await ui.safe_edit(query, clan_text(user_id), clan_kb(user_id))
     elif action == "cdonate":
         context.user_data["await"] = {"kind": "clan_donate"}

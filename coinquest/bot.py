@@ -135,7 +135,7 @@ async def on_captcha(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     lang = i18n.lang_of(user_id)
     user = db.get_user(user_id)
     if user is None:
-        await query.answer()
+        await ui.answer(query)
         return
     correct = context.user_data.get("captcha")
     picked = int(query.data.split(":")[1])
@@ -143,8 +143,8 @@ async def on_captcha(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     db.upd(user_id, captcha_try=tries)
 
     if correct is None or picked != correct:
-        await query.answer(i18n.t(lang, "cap_wrong", n=tries, max=config.CAPTCHA_MAX_TRIES),
-                           show_alert=True)
+        await ui.answer(query, i18n.t(lang, "cap_wrong", n=tries, max=config.CAPTCHA_MAX_TRIES),
+                           alert=True)
         try:
             await query.message.delete()
         except Exception:
@@ -154,7 +154,7 @@ async def on_captcha(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
     db.upd(user_id, captcha_ok=1)
     context.user_data.pop("captcha", None)
-    await query.answer(i18n.t(lang, "cap_ok"))
+    await ui.answer(query, i18n.t(lang, "cap_ok"))
     # davet ödülü: ilk denemede tam, 2-3. denemede yarım, sonrası yok
     if user["referrer"] and not user["ref_paid"]:
         if tries == 1:
@@ -206,7 +206,7 @@ async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 async def on_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
-    await query.answer()
+    await ui.answer(query)
     parts = query.data.split(":")
     action = parts[1]
     user_id = update.effective_user.id
@@ -216,7 +216,7 @@ async def on_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         i18n.set_lang(user_id, parts[2])
         lang = parts[2]
         user = db.get_user(user_id)
-        await query.answer(i18n.t(lang, "lang_ok"))
+        await ui.answer(query, i18n.t(lang, "lang_ok"))
         if not user["captcha_ok"]:
             try:
                 await query.message.delete()
@@ -228,7 +228,7 @@ async def on_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         return
 
     if not ui.is_private(update):
-        await query.answer(i18n.t(lang, "only_private"), show_alert=True)
+        await ui.answer(query, i18n.t(lang, "only_private"), alert=True)
         return
 
     if action == "main":
@@ -247,7 +247,7 @@ async def on_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 async def on_custom_bet(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """bet:custom:<callback_prefix> — kullanıcıdan özel bahis tutarı ister."""
     query = update.callback_query
-    await query.answer()
+    await ui.answer(query)
     prefix = query.data.split(":", 2)[2]
     user = db.get_user(update.effective_user.id)
     context.user_data["await"] = {"kind": "custom_bet", "prefix": prefix}
@@ -348,15 +348,29 @@ async def pre_process(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
            first_name=(tg_user.first_name or "Gezgin")[:64])
     if row["banned"]:
         if update.callback_query:
-            await update.callback_query.answer("🚫 Bu bottan yasaklandın.", show_alert=True)
+            await ui.answer(update.callback_query, "🚫 Bu bottan yasaklandın.", alert=True)
         raise ApplicationHandlerStop
+
+
+def cb(handler):
+    """Callback sarmalayıcı: dal cevap vermediyse bekleyen bildirimi gösterir,
+    böylece hiçbir buton cevapsız kalmaz ve uyarılar kaybolmaz."""
+    async def inner(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        query = update.callback_query
+        try:
+            await handler(update, context)
+        finally:
+            toast = context.user_data.pop("_toast", "") if context.user_data is not None else ""
+            await ui.answer(query, toast, quiet=True)
+    inner.__name__ = getattr(handler, "__name__", "cb")
+    return inner
 
 
 async def on_unknown_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Hiçbir kalıba uymayan buton — kullanıcı boşluğa basmasın."""
     query = update.callback_query
     log.warning("bilinmeyen buton: %s (user %s)", query.data, update.effective_user.id)
-    await query.answer("Bu buton eskimiş, menüyü yeniliyorum 🙂", show_alert=False)
+    await ui.answer(query, "Bu buton eskimiş, menüyü yeniliyorum 🙂", show_alert=False)
     user = db.get_user(update.effective_user.id)
     if user and ui.is_private(update):
         await ui.nav(query, "menu", main_menu_text(user),
@@ -420,18 +434,18 @@ def build_app() -> Application:
     app.add_handler(CommandHandler("admin", admin.cmd_admin))
 
     # callback yönlendirmeleri
-    app.add_handler(CallbackQueryHandler(on_menu_callback, pattern=r"^m:"))
-    app.add_handler(CallbackQueryHandler(on_custom_bet, pattern=r"^bet:custom:"))
-    app.add_handler(CallbackQueryHandler(games.on_callback, pattern=r"^g:"))
-    app.add_handler(CallbackQueryHandler(pvp.on_callback, pattern=r"^pvp:"))
-    app.add_handler(CallbackQueryHandler(party.on_callback, pattern=r"^pt:"))
-    app.add_handler(CallbackQueryHandler(market.on_callback, pattern=r"^mk:"))
-    app.add_handler(CallbackQueryHandler(social.on_callback, pattern=r"^s:"))
-    app.add_handler(CallbackQueryHandler(events.on_callback, pattern=r"^ev:"))
-    app.add_handler(CallbackQueryHandler(cash.on_callback, pattern=r"^cash:"))
-    app.add_handler(CallbackQueryHandler(support.on_callback, pattern=r"^sup:"))
-    app.add_handler(CallbackQueryHandler(on_captcha, pattern=r"^cap:"))
-    app.add_handler(CallbackQueryHandler(admin.on_callback, pattern=r"^ad:"))
+    app.add_handler(CallbackQueryHandler(cb(on_menu_callback), pattern=r"^m:"))
+    app.add_handler(CallbackQueryHandler(cb(on_custom_bet), pattern=r"^bet:custom:"))
+    app.add_handler(CallbackQueryHandler(cb(games.on_callback), pattern=r"^g:"))
+    app.add_handler(CallbackQueryHandler(cb(pvp.on_callback), pattern=r"^pvp:"))
+    app.add_handler(CallbackQueryHandler(cb(party.on_callback), pattern=r"^pt:"))
+    app.add_handler(CallbackQueryHandler(cb(market.on_callback), pattern=r"^mk:"))
+    app.add_handler(CallbackQueryHandler(cb(social.on_callback), pattern=r"^s:"))
+    app.add_handler(CallbackQueryHandler(cb(events.on_callback), pattern=r"^ev:"))
+    app.add_handler(CallbackQueryHandler(cb(cash.on_callback), pattern=r"^cash:"))
+    app.add_handler(CallbackQueryHandler(cb(support.on_callback), pattern=r"^sup:"))
+    app.add_handler(CallbackQueryHandler(cb(on_captcha), pattern=r"^cap:"))
+    app.add_handler(CallbackQueryHandler(cb(admin.on_callback), pattern=r"^ad:"))
 
     # yazı + medya (destek ve reklam için)
     media_filter = (filters.TEXT | filters.PHOTO | filters.VIDEO | filters.ANIMATION

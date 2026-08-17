@@ -370,10 +370,10 @@ async def start_mines(query, context, user_id: int, bet: int, mines: int) -> Non
 async def mines_pick(query, context, user_id: int, idx: int) -> None:
     session = context.user_data.get("mines")
     if not session:
-        await query.answer("Aktif oyun bulunamadı, yeniden başlat.", show_alert=True)
+        await ui.answer(query, "Aktif oyun bulunamadı, yeniden başlat.", alert=True)
         return
     if idx in session["picked"]:
-        await query.answer("Bu kutu zaten açık.")
+        await ui.answer(query, "Bu kutu zaten açık.")
         return
     if idx in session["bombs"]:
         context.user_data.pop("mines", None)
@@ -388,14 +388,14 @@ async def mines_pick(query, context, user_id: int, idx: int) -> None:
     if len(session["picked"]) >= 25 - session["mines"]:
         await mines_cash(query, context, user_id, perfect=True)
         return
-    await query.answer("💎 Elmas!")
+    await ui.answer(query, "💎 Elmas!")
     await ui.safe_edit(query, mines_text(session, "\nDevam et ya da parayı çek 👇"), mines_kb(session))
 
 
 async def mines_cash(query, context, user_id: int, perfect: bool = False) -> None:
     session = context.user_data.pop("mines", None)
     if not session:
-        await query.answer("Aktif oyun yok.", show_alert=True)
+        await ui.answer(query, "Aktif oyun yok.", alert=True)
         return
     picks = len(session["picked"])
     if picks == 0:
@@ -467,7 +467,7 @@ async def start_hilo(query, context, user_id: int, bet: int) -> None:
 async def hilo_guess(query, context, user_id: int, guess: str) -> None:
     session = context.user_data.get("hilo")
     if not session:
-        await query.answer("Aktif oyun yok.", show_alert=True)
+        await ui.answer(query, "Aktif oyun yok.", alert=True)
         return
     deck = session["deck"]
     cur = session["card"][0]
@@ -483,7 +483,7 @@ async def hilo_guess(query, context, user_id: int, guess: str) -> None:
     nxt = deck.pop()
     session["card"] = nxt
     if nxt[0] == cur:
-        await query.answer("➖ Eşit kart! Çarpan korundu.")
+        await ui.answer(query, "➖ Eşit kart! Çarpan korundu.")
         await ui.safe_edit(query, hilo_text(session, f"Eşit çıktı ({card_str(nxt)}), devam!"), hilo_kb(session))
         return
     correct = (nxt[0] > cur) if guess == "hi" else (nxt[0] < cur)
@@ -500,14 +500,14 @@ async def hilo_guess(query, context, user_id: int, guess: str) -> None:
     step = min(6.0, (0.94 / prob) if prob > 0 else 1.0)
     session["mult"] = round(session["mult"] * step, 3)
     session["streak"] += 1
-    await query.answer(f"✅ Doğru! {step:.2f}x")
+    await ui.answer(query, f"✅ Doğru! {step:.2f}x")
     await ui.safe_edit(query, hilo_text(session, f"Gelen kart: <b>{card_str(nxt)}</b> — devam?"), hilo_kb(session))
 
 
 async def hilo_cash(query, context, user_id: int) -> None:
     session = context.user_data.pop("hilo", None)
     if not session:
-        await query.answer("Aktif oyun yok.", show_alert=True)
+        await ui.answer(query, "Aktif oyun yok.", alert=True)
         return
     won = int(session["bet"] * session["mult"])
     line = settle(user_id, session["bet"], won, "yüksek-düşük")
@@ -571,15 +571,15 @@ async def start_bj(query, context, user_id: int, bet: int) -> None:
 async def bj_move(query, context, user_id: int, move: str) -> None:
     session = context.user_data.get("bj")
     if not session:
-        await query.answer("Aktif oyun yok.", show_alert=True)
+        await ui.answer(query, "Aktif oyun yok.", alert=True)
         return
     if move == "double":
         if session["doubled"] or len(session["player"]) > 2:
-            await query.answer("İki katı sadece başta yapılabilir.", show_alert=True)
+            await ui.answer(query, "İki katı sadece başta yapılabilir.", alert=True)
             return
         user = db.get_user(user_id)
         if user["coins"] < session["bet"]:
-            await query.answer("İki katı için yeterli altın yok.", show_alert=True)
+            await ui.answer(query, "İki katı için yeterli altın yok.", alert=True)
             return
         economy.take_coins(user_id, session["bet"], "blackjack iki katı")
         session["bet"] *= 2
@@ -673,7 +673,7 @@ async def start_crash(query, context, user_id: int, bet: int) -> None:
 async def crash_step(query, context, user_id: int) -> None:
     session = context.user_data.get("crash")
     if not session:
-        await query.answer("Aktif oyun yok.", show_alert=True)
+        await ui.answer(query, "Aktif oyun yok.", alert=True)
         return
     step = min(len(CRASH_STEPS) - 1, session["step"])
     target = CRASH_STEPS[step]
@@ -688,14 +688,14 @@ async def crash_step(query, context, user_id: int) -> None:
         await result_screen(query, user_id, text, f"g:crbet:{session['bet']}")
         return
     session["mult"] = target
-    await query.answer(f"🚀 {target:.2f}x")
+    await ui.answer(query, f"🚀 {target:.2f}x")
     await ui.safe_edit(query, crash_text(session, "Devam mı, çıkış mı?"), crash_kb(session))
 
 
 async def crash_cash(query, context, user_id: int) -> None:
     session = context.user_data.pop("crash", None)
     if not session:
-        await query.answer("Aktif oyun yok.", show_alert=True)
+        await ui.answer(query, "Aktif oyun yok.", alert=True)
         return
     won = int(session["bet"] * session["mult"])
     line = settle(user_id, session["bet"], won, "roket")
@@ -769,12 +769,12 @@ async def start_skill(query, context, user_id: int, kind: str) -> None:
     user = db.get_user(user_id)
     left = skill_cooldown_left(user)
     if left > 0:
-        await query.answer(
+        await ui.answer(query, 
             f"⏳ BU OYUN ŞU AN TEKRAR OYNANAMAZ\n\n"
             f"Bilgi oyunları arasında {config.SKILL_COOLDOWN} saniye beklemek gerekiyor.\n"
             f"Kalan süre: {ui.dur(left)}\n\n"
             f"Bu arada 🎲 şans oyunlarını ya da 💼 çalışmayı dene.",
-            show_alert=True)
+            alert=True)
         return
     db.upd(user_id, last_skill=ui.now())
     reward_base = 700 + user["level"] * 70
@@ -850,7 +850,7 @@ async def start_skill(query, context, user_id: int, kind: str) -> None:
 async def skill_quiz_answer(query, context, user_id: int, idx: int) -> None:
     session = context.user_data.pop("skill", None)
     if not session or session["kind"] != "quiz":
-        await query.answer("Bu soru artık geçerli değil.", show_alert=True)
+        await ui.answer(query, "Bu soru artık geçerli değil.", alert=True)
         return
     elapsed = time.time() - session.get("ts", 0)
     if elapsed > session.get("limit", 10):
@@ -873,10 +873,10 @@ async def skill_quiz_answer(query, context, user_id: int, idx: int) -> None:
 async def skill_reflex_answer(query, context, user_id: int, idx: int) -> None:
     session = context.user_data.pop("skill", None)
     if not session or session["kind"] != "reflex":
-        await query.answer("Bu tur bitti.", show_alert=True)
+        await ui.answer(query, "Bu tur bitti.", alert=True)
         return
     if not session["ts"]:
-        await query.answer("Çok acele ettin! Hedef daha belirmemişti.", show_alert=True)
+        await ui.answer(query, "Çok acele ettin! Hedef daha belirmemişti.", alert=True)
         return
     elapsed = time.time() - session["ts"]
     if idx != session["answer"]:
@@ -963,7 +963,7 @@ async def do_work(query, context, user_id: int) -> None:
     user = db.get_user(user_id)
     left = economy.cooldown_left(user["last_work"], config.WORK_COOLDOWN)
     if left > 0:
-        await query.answer(f"⏳ Yorgunsun! {ui.dur(left)} sonra tekrar çalışabilirsin.", show_alert=True)
+        await ui.answer(query, f"⏳ Yorgunsun! {ui.dur(left)} sonra tekrar çalışabilirsin.", alert=True)
         return
     title, story = random.choice(JOBS)
     base = 1_200 + user["level"] * 380
@@ -989,13 +989,13 @@ async def do_mine(query, context, user_id: int) -> None:
     user = db.get_user(user_id)
     left = economy.cooldown_left(user["last_mine"], config.MINE_COOLDOWN)
     if left > 0:
-        await query.answer(f"⏳ Kazman soğuyor: {ui.dur(left)}", show_alert=True)
+        await ui.answer(query, f"⏳ Kazman soğuyor: {ui.dur(left)}", alert=True)
         return
     if user["pickaxe"] <= 0:
-        await query.answer("⛏ Kazman kırıldı! Marketten yeni kazma al.", show_alert=True)
+        await ui.answer(query, "⛏ Kazman kırıldı! Marketten yeni kazma al.", alert=True)
         return
     if not economy.spend_energy(user_id, 2):
-        await query.answer("⚡ Enerjin yetersiz (2 gerekli).", show_alert=True)
+        await ui.answer(query, "⚡ Enerjin yetersiz (2 gerekli).", alert=True)
         return
     weights = [40, 26, 16, 10, 6, 2]
     idx = random.choices(range(len(ORES)), weights=weights)[0]
@@ -1047,7 +1047,7 @@ def simulate_fight(atk_a: dict, name_a: str, atk_b: dict, name_b: str, max_round
 async def do_arena(query, context, user_id: int) -> None:
     user = db.get_user(user_id)
     if not economy.spend_energy(user_id, 3):
-        await query.answer("⚡ Enerjin yetersiz (3 gerekli). Enerji içeceği kullanabilirsin.", show_alert=True)
+        await ui.answer(query, "⚡ Enerjin yetersiz (3 gerekli). Enerji içeceği kullanabilirsin.", alert=True)
         return
     stats = economy.power(user)
     pool = MONSTERS[:max(3, min(len(MONSTERS), 3 + user["level"] // 3))]
@@ -1121,8 +1121,8 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     user_id = update.effective_user.id
 
     if not ui.is_private(update):
-        await query.answer("🎮 Oyunlar sadece bota özelden açılır. Bana özelden yaz!",
-                           show_alert=True)
+        await ui.answer(query, "🎮 Oyunlar sadece bota özelden açılır. Bana özelden yaz!",
+                           alert=True)
         return
     TOASTS = {"menu": "🎮 Oyunlar", "cat": "👇 Seç", "pick": "💵 Bahsini seç",
               "work": "💼 İşe gidiliyor...", "mine": "⛏ Maden kazılıyor...",
@@ -1132,7 +1132,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
               "crbet": "🚀 Roket kalkıyor", "cfbet": "🪙 Tahminini seç",
               "dicebet": "🎲 Tahminini seç", "rltbet": "🎡 Nereye oynuyorsun?",
               "mnbet": "💣 Kaç mayın olsun?"}
-    await query.answer(TOASTS.get(action, ""))
+    context.user_data["_toast"] = TOASTS.get(action, "")
     user = db.get_user(user_id)
     if user is None:
         await ui.safe_edit(query, "Önce /start yaz.")
@@ -1169,10 +1169,10 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         game, bet = parts[2], int(parts[3])
         ok, msg = validate_bet(user, bet)
         if not ok:
-            await query.answer(msg, show_alert=True)
+            await ui.answer(query, msg, alert=True)
             return
         if not economy.take_coins(user_id, bet, f"{game} bahis"):
-            await query.answer("Bakiye yetersiz.", show_alert=True)
+            await ui.answer(query, "Bakiye yetersiz.", alert=True)
             return
         if game == "slots":
             await play_slots(query, context, user_id, bet)
@@ -1185,7 +1185,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         bet = int(parts[2])
         ok, msg = validate_bet(user, bet)
         if not ok:
-            await query.answer(msg, show_alert=True)
+            await ui.answer(query, msg, alert=True)
             return
         await ui.safe_edit(query, (
             f"🪙 <b>YAZI TURA</b>\n\nBahis: {ui.fmt(bet)} 🪙 • Ödeme 1.9x\n\nTahminin?"
@@ -1198,10 +1198,10 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         bet, side = int(parts[2]), parts[3]
         ok, msg = validate_bet(user, bet)
         if not ok:
-            await query.answer(msg, show_alert=True)
+            await ui.answer(query, msg, alert=True)
             return
         if not economy.take_coins(user_id, bet, "yazı-tura bahis"):
-            await query.answer("Bakiye yetersiz.", show_alert=True)
+            await ui.answer(query, "Bakiye yetersiz.", alert=True)
             return
         await play_coinflip(query, context, user_id, bet, side)
         return
@@ -1210,7 +1210,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         bet = int(parts[2])
         ok, msg = validate_bet(user, bet)
         if not ok:
-            await query.answer(msg, show_alert=True)
+            await ui.answer(query, msg, alert=True)
             return
         rows = [[(f"{label} — {mult:g}x", f"g:dice:{bet}:{key}")]
                 for key, (label, mult, _f) in DICE_BETS.items()]
@@ -1224,10 +1224,10 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         bet, choice = int(parts[2]), parts[3]
         ok, msg = validate_bet(user, bet)
         if not ok:
-            await query.answer(msg, show_alert=True)
+            await ui.answer(query, msg, alert=True)
             return
         if not economy.take_coins(user_id, bet, "zar bahis"):
-            await query.answer("Bakiye yetersiz.", show_alert=True)
+            await ui.answer(query, "Bakiye yetersiz.", alert=True)
             return
         await play_dice(query, context, user_id, bet, choice)
         return
@@ -1236,7 +1236,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         bet = int(parts[2])
         ok, msg = validate_bet(user, bet)
         if not ok:
-            await query.answer(msg, show_alert=True)
+            await ui.answer(query, msg, alert=True)
             return
         await ui.safe_edit(query, (
             f"🎡 <b>RULET</b>\n\nBahis: {ui.fmt(bet)} 🪙\nNereye oynuyorsun?"
@@ -1253,10 +1253,10 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         bet, sel = int(parts[2]), parts[3]
         ok, msg = validate_bet(user, bet)
         if not ok:
-            await query.answer(msg, show_alert=True)
+            await ui.answer(query, msg, alert=True)
             return
         if not economy.take_coins(user_id, bet, "rulet bahis"):
-            await query.answer("Bakiye yetersiz.", show_alert=True)
+            await ui.answer(query, "Bakiye yetersiz.", alert=True)
             return
         await play_roulette(query, context, user_id, bet, sel)
         return
@@ -1266,7 +1266,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         bet = int(parts[2])
         ok, msg = validate_bet(user, bet)
         if not ok:
-            await query.answer(msg, show_alert=True)
+            await ui.answer(query, msg, alert=True)
             return
         await ui.safe_edit(query, (
             f"💣 <b>MAYIN TARLASI</b>\n\nBahis: {ui.fmt(bet)} 🪙\n"
@@ -1281,10 +1281,10 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         bet, mines = int(parts[2]), int(parts[3])
         ok, msg = validate_bet(user, bet)
         if not ok:
-            await query.answer(msg, show_alert=True)
+            await ui.answer(query, msg, alert=True)
             return
         if not economy.take_coins(user_id, bet, "mayın bahis"):
-            await query.answer("Bakiye yetersiz.", show_alert=True)
+            await ui.answer(query, "Bakiye yetersiz.", alert=True)
             return
         await start_mines(query, context, user_id, bet, mines)
         return
@@ -1307,10 +1307,10 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         bet = int(parts[2])
         ok, msg = validate_bet(user, bet)
         if not ok:
-            await query.answer(msg, show_alert=True)
+            await ui.answer(query, msg, alert=True)
             return
         if not economy.take_coins(user_id, bet, "yüksek-düşük bahis"):
-            await query.answer("Bakiye yetersiz.", show_alert=True)
+            await ui.answer(query, "Bakiye yetersiz.", alert=True)
             return
         await start_hilo(query, context, user_id, bet)
         return
@@ -1326,10 +1326,10 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         bet = int(parts[2])
         ok, msg = validate_bet(user, bet)
         if not ok:
-            await query.answer(msg, show_alert=True)
+            await ui.answer(query, msg, alert=True)
             return
         if not economy.take_coins(user_id, bet, "blackjack bahis"):
-            await query.answer("Bakiye yetersiz.", show_alert=True)
+            await ui.answer(query, "Bakiye yetersiz.", alert=True)
             return
         await start_bj(query, context, user_id, bet)
         return
@@ -1342,10 +1342,10 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         bet = int(parts[2])
         ok, msg = validate_bet(user, bet)
         if not ok:
-            await query.answer(msg, show_alert=True)
+            await ui.answer(query, msg, alert=True)
             return
         if not economy.take_coins(user_id, bet, "roket bahis"):
-            await query.answer("Bakiye yetersiz.", show_alert=True)
+            await ui.answer(query, "Bakiye yetersiz.", alert=True)
             return
         await start_crash(query, context, user_id, bet)
         return

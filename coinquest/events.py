@@ -460,10 +460,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     action = parts[1] if len(parts) > 1 else "quests"
     TOASTS = {"quests": "📜 Görevlerin", "ach": "🏅 Başarımlar", "boss": "🐉 Canavar",
               "lottery": "🎟 Çekiliş", "claim": "🎁 Ödüller"}
-    if action not in ("hit", "buy"):
-        await query.answer(TOASTS.get(action, ""))
-    else:
-        await query.answer()
+    context.user_data["_toast"] = TOASTS.get(action, "")
 
     if action == "quests":
         await ui.safe_edit(query, quests_text(user_id), ui.kb([
@@ -474,9 +471,9 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     elif action == "claim":
         total, count = claim_quests(user_id)
         if count:
-            await query.answer(f"🎁 {count} görev ödülü alındı: +{ui.fmt(total)} altın!", show_alert=True)
+            await ui.answer(query, f"🎁 {count} görev ödülü alındı: +{ui.fmt(total)} altın!", alert=True)
         else:
-            await query.answer("Alınacak hazır görev ödülü yok.", show_alert=True)
+            await ui.answer(query, "Alınacak hazır görev ödülü yok.", alert=True)
         await ui.safe_edit(query, quests_text(user_id), ui.kb([
             [("🎁 Ödülleri Al", "ev:claim")],
             [("🏅 Başarımlar", "ev:ach")],
@@ -492,21 +489,21 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     elif action == "hit":
         res = attack_boss(user_id)
         if not res["ok"]:
-            await query.answer(res["msg"], show_alert=True)
+            await ui.answer(query, res["msg"], alert=True)
             return
         note = "💥 KRİTİK! " if res["crit"] else ""
         if res["killed"]:
             mine = next((c for uid, c, _g in res["rewards"] if uid == user_id), 0)
-            await query.answer(
+            await ui.answer(query, 
                 f"{note}{ui.fmt(res['damage'])} hasar — BOSS ÖLDÜ! Payın: {ui.fmt(mine)} altın 🎉",
-                show_alert=True)
+                alert=True)
             await _broadcast_groups(context, (
                 f"☠️ <b>{ui.esc(res['boss']['name'])} yenildi!</b>\n"
                 f"Son vuruş: {ui.mention(db.get_user(user_id))}\n"
                 f"Ödüller hasara göre dağıtıldı. Yeni boss yolda!"
             ))
         else:
-            await query.answer(f"{note}{ui.fmt(res['damage'])} hasar verdin!")
+            await ui.answer(query, f"{note}{ui.fmt(res['damage'])} hasar verdin!")
         boss = active_boss()
         rows = [[("⚔️ SALDIR", "ev:hit")]] if boss else []
         rows.append([("🔄 Yenile", "ev:boss"), ("🏠 Menü", "m:main")])
@@ -521,9 +518,9 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         count = max(1, min(500, int(parts[2])))
         res = buy_tickets(user_id, count)
         if not res["ok"]:
-            await query.answer(res["msg"], show_alert=True)
+            await ui.answer(query, res["msg"], alert=True)
         else:
-            await query.answer(f"🎫 {count} bilet alındı! Toplam biletin: {res['tickets']}")
+            await ui.answer(query, f"🎫 {count} bilet alındı! Toplam biletin: {res['tickets']}")
         await ui.safe_edit(query, lottery_text(user_id), ui.kb([
             [("🎫 1 Bilet", "ev:buy:1"), ("🎫 5 Bilet", "ev:buy:5")],
             [("🎫 10 Bilet", "ev:buy:10"), ("🎫 50 Bilet", "ev:buy:50")],

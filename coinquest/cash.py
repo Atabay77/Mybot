@@ -208,21 +208,21 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     user_id = update.effective_user.id
     lang = i18n.lang_of(user_id)
     if not ui.is_private(update):
-        await query.answer(i18n.t(lang, "only_private"), show_alert=True)
+        await ui.answer(query, i18n.t(lang, "only_private"), alert=True)
         return
     TOASTS = {"menu": "💵", "wd": "💸 Para çekme", "amt": "💰 Tutar seç",
               "cur": "💱 Para birimi", "mth": "📮 Ödeme yolu", "hist": "📜 Geçmiş"}
-    await query.answer(TOASTS.get(action, ""))
+    context.user_data["_toast"] = TOASTS.get(action, "")
     user = db.get_user(user_id)
 
     if action == "menu":
         await ui.nav(query, "cash", panel_text(user_id), panel_kb(user_id))
 
     elif action == "none":
-        await query.answer(i18n.t(lang, "m_cap_hit"), show_alert=True)
+        await ui.answer(query, i18n.t(lang, "m_cap_hit"), alert=True)
 
     elif action == "ex":
-        await query.answer(_plain(exchange(user_id, int(parts[2]))), show_alert=True)
+        await ui.answer(query, _plain(exchange(user_id, int(parts[2]))), alert=True)
         await ui.safe_edit(query, panel_text(user_id), panel_kb(user_id))
 
     elif action == "exmax":
@@ -230,9 +230,9 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         user = db.get_user(user_id)
         possible = min(left_today(user), user["coins"] * 100 // config.COINS_PER_MONEY)
         if possible <= 0:
-            await query.answer(i18n.t(lang, "m_no_coins"), show_alert=True)
+            await ui.answer(query, i18n.t(lang, "m_no_coins"), alert=True)
         else:
-            await query.answer(_plain(exchange(user_id, possible)), show_alert=True)
+            await ui.answer(query, _plain(exchange(user_id, possible)), alert=True)
         await ui.safe_edit(query, panel_text(user_id), panel_kb(user_id))
 
     elif action == "wd":

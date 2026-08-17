@@ -75,7 +75,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     parts = query.data.split(":")
     action = parts[1]
     lang = i18n.lang_of(user_id)
-    await query.answer()
+    await ui.answer(query)
 
     if action == "menu":
         await ui.safe_edit(query, panel_text(user_id), panel_kb(user_id))
@@ -86,7 +86,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         ), ui.kb([[(i18n.t(lang, "b_back"), "sup:menu")]]))
     elif action == "reply":                       # yetkili cevaplıyor
         if not db.staff_role(user_id):
-            await query.answer("Yetkin yok.", show_alert=True)
+            await ui.answer(query, "Yetkin yok.", alert=True)
             return
         ticket_id = int(parts[2])
         context.user_data["await"] = {"kind": "support_reply", "ticket": ticket_id}
@@ -99,7 +99,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         if not db.staff_role(user_id):
             return
         db.run("UPDATE tickets SET state='kapali', unread=0 WHERE id=?", (int(parts[2]),))
-        await query.answer("Kapatıldı.")
+        await ui.answer(query, "Kapatıldı.")
         await ui.safe_edit(query, inbox_text(), inbox_kb())
     elif action == "inbox":
         if not db.staff_role(user_id):

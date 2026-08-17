@@ -137,6 +137,46 @@ def header(user, with_money: bool = False) -> str:
     return f"<blockquote>{line}</blockquote>"
 
 
+_answered: set = set()
+
+
+async def answer(query, text: str = "", alert: bool = False, quiet: bool = False) -> bool:
+    """Butona cevap verir.
+
+    Telegram bir butona sadece BİR kez cevap verilmesine izin verir. İkinci kez
+    uyarı göstermek istersek sessizce kaybolur — bu yüzden ikinci uyarıyı
+    sohbete mesaj olarak gönderiyoruz ki kullanıcı mutlaka görsün.
+    """
+    qid = getattr(query, "id", None)
+    if qid in _answered:
+        if text and not quiet:
+            try:
+                await query.message.chat.send_message(
+                    f"⚠️ {text}", parse_mode=None,
+                    reply_markup=kb([[("🏠", "m:main")]]) if alert else None)
+            except Exception:
+                pass
+        return False
+    if qid:
+        if len(_answered) > 800:
+            _answered.clear()
+        _answered.add(qid)
+    long_text = len(text) > 190
+    try:
+        if long_text:               # Telegram uyarısı 200 karakterle sınırlı
+            await query.answer(text[:150] + "…", show_alert=True)
+            try:
+                await query.message.chat.send_message(text, reply_markup=kb([[("🏠", "m:main")]]))
+            except Exception:
+                pass
+        else:
+            await query.answer(text or None, show_alert=alert)
+        return True
+    except Exception as exc:
+        log.debug("cevap verilemedi: %s", exc)
+        return False
+
+
 async def safe_edit(query, text: str, reply_markup=None, parse_mode=ParseMode.HTML):
     """Mesajı düzenler. Başarısız olursa eski mesajı silip yenisini gönderir,
     böylece kullanıcı asla 'tepki vermeyen buton' ile karşılaşmaz."""

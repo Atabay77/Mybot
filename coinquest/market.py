@@ -596,13 +596,13 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     action = parts[1] if len(parts) > 1 else "menu"
     user_id = update.effective_user.id
     if not ui.is_private(update):
-        await query.answer("🏪 Market sadece bota özelden açılır.", show_alert=True)
+        await ui.answer(query, "🏪 Market sadece bota özelden açılır.", alert=True)
         return
     TOASTS = {"menu": "🏪 Market", "cat": "👇 Eşyalar", "inv": "🎒 Eşyaların",
               "item": "🔍 Detay", "bazaar": "🛒 Pazar", "biz": "🏭 İş yerin",
               "gems": "💎 Elmas dükkanı", "bmine": "📄 İlanların",
               "list": "🛒 Fiyat belirle"}
-    await query.answer(TOASTS.get(action, ""))
+    context.user_data["_toast"] = TOASTS.get(action, "")
     user = db.get_user(user_id)
     if user is None:
         await ui.safe_edit(query, "Önce /start yaz.")
@@ -615,7 +615,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await ui.safe_edit(query, cat_text(kind, user), cat_kb(kind, user))
     elif action == "buy":
         ok, msg = buy_item(user_id, parts[2])
-        await query.answer(msg.replace("<b>", "").replace("</b>", ""), show_alert=True)
+        await ui.answer(query, msg.replace("<b>", "").replace("</b>", ""), alert=True)
         item = items.get(parts[2])
         kind = item["kind"] if item else "weapon"
         user = db.get_user(user_id)
@@ -627,27 +627,27 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         text, kb = item_detail(user_id, int(parts[2]))
         await ui.safe_edit(query, text, kb)
     elif action == "eq":
-        await query.answer(equip(user_id, int(parts[2])), show_alert=True)
+        await ui.answer(query, equip(user_id, int(parts[2])), alert=True)
         text, kb = item_detail(user_id, int(parts[2]))
         await ui.safe_edit(query, text, kb)
     elif action == "use":
         msg = use_item(user_id, int(parts[2]))
-        await query.answer(msg, show_alert=True)
+        await ui.answer(query, msg, alert=True)
         await ui.safe_edit(query, inv_text(user_id), inv_kb(user_id))
     elif action == "up":
         msg = upgrade(user_id, int(parts[2]))
-        await query.answer(msg.replace("<b>", "").replace("</b>", ""), show_alert=True)
+        await ui.answer(query, msg.replace("<b>", "").replace("</b>", ""), alert=True)
         text, kb = item_detail(user_id, int(parts[2]))
         await ui.safe_edit(query, text, kb)
     elif action == "sell":
         msg = sell_to_npc(user_id, int(parts[2]))
-        await query.answer(msg, show_alert=True)
+        await ui.answer(query, msg, alert=True)
         await ui.safe_edit(query, inv_text(user_id), inv_kb(user_id))
     elif action == "list":
         inv_id = int(parts[2])
         row = db.inv_get(inv_id, user_id)
         if not row:
-            await query.answer("Bu eşya sende değil.", show_alert=True)
+            await ui.answer(query, "Bu eşya sende değil.", alert=True)
             return
         item = items.get(row["item_key"])
         context.user_data["await"] = {"kind": "bazaar_price", "inv_id": inv_id}
@@ -664,21 +664,21 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await ui.safe_edit(query, bazaar_text(page), bazaar_kb(page))
     elif action == "bbuy":
         msg = bazaar_buy(user_id, int(parts[2]))
-        await query.answer(msg.replace("<b>", "").replace("</b>", ""), show_alert=True)
+        await ui.answer(query, msg.replace("<b>", "").replace("</b>", ""), alert=True)
         await ui.safe_edit(query, bazaar_text(), bazaar_kb())
     elif action == "bmine":
         await ui.safe_edit(query, my_listings_text(user_id), my_listings_kb(user_id))
     elif action == "bcancel":
-        await query.answer(bazaar_cancel(user_id, int(parts[2])), show_alert=True)
+        await ui.answer(query, bazaar_cancel(user_id, int(parts[2])), alert=True)
         await ui.safe_edit(query, my_listings_text(user_id), my_listings_kb(user_id))
     elif action == "biz":
         await ui.safe_edit(query, biz_text(user), biz_kb(user))
     elif action == "bizbuy":
-        await query.answer(biz_buy(user_id, parts[2]).replace("<b>", "").replace("</b>", ""), show_alert=True)
+        await ui.answer(query, biz_buy(user_id, parts[2]).replace("<b>", "").replace("</b>", ""), alert=True)
         user = db.get_user(user_id)
         await ui.safe_edit(query, biz_text(user), biz_kb(user))
     elif action == "bizcollect":
-        await query.answer(biz_collect(user_id).replace("<b>", "").replace("</b>", ""), show_alert=True)
+        await ui.answer(query, biz_collect(user_id).replace("<b>", "").replace("</b>", ""), alert=True)
         user = db.get_user(user_id)
         await ui.safe_edit(query, biz_text(user), biz_kb(user))
     elif action == "gems":
@@ -687,17 +687,17 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         count = int(parts[2])
         if economy.take_gems(user_id, count, "elmas takası"):
             economy.add_coins(user_id, count * config.GEM_TO_COIN, "elmas takası")
-            await query.answer(f"🔁 {count} 💎 → {ui.fmt(count * config.GEM_TO_COIN)} 🪙", show_alert=True)
+            await ui.answer(query, f"🔁 {count} 💎 → {ui.fmt(count * config.GEM_TO_COIN)} 🪙", alert=True)
         else:
-            await query.answer("Yeterli elmasın yok.", show_alert=True)
+            await ui.answer(query, "Yeterli elmasın yok.", alert=True)
         user = db.get_user(user_id)
         await ui.safe_edit(query, gems_text(user), gems_kb())
     elif action == "genergy":
         if economy.take_gems(user_id, 10, "enerji dolumu"):
             db.upd(user_id, energy=economy.max_energy(user["level"]), energy_ts=ui.now())
-            await query.answer("⚡ Enerji tamamen doldu!", show_alert=True)
+            await ui.answer(query, "⚡ Enerji tamamen doldu!", alert=True)
         else:
-            await query.answer("10 elmas gerekiyor.", show_alert=True)
+            await ui.answer(query, "10 elmas gerekiyor.", alert=True)
         user = db.get_user(user_id)
         await ui.safe_edit(query, gems_text(user), gems_kb())
 

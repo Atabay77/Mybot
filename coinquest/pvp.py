@@ -225,7 +225,7 @@ async def create_duel(update, context, game: str, stake: int) -> None:
 
 async def _answer(update, text: str) -> None:
     if update.callback_query:
-        await update.callback_query.answer(text, show_alert=True)
+        await ui.answer(update.callback_query, text, alert=True)
     else:
         await ui.send(update, text)
 
@@ -261,7 +261,7 @@ async def accept_duel(update, context, duel_id: int) -> None:
         await _answer(update, "Başka biri daha hızlıydı!")
         return
     if update.callback_query:
-        await update.callback_query.answer("Düello başlıyor!")
+        await ui.answer(update.callback_query, "Düello başlıyor!")
     game = duel["game"]
     if game == "rps":
         await rps_start(context, duel)
@@ -340,17 +340,17 @@ async def rps_pick(update, context, duel_id: int, choice: str) -> None:
     user_id = update.effective_user.id
     duel, data = load(duel_id)
     if duel is None or duel["state"] != "playing":
-        await query.answer("Bu düello bitti.", show_alert=True)
+        await ui.answer(query, "Bu düello bitti.", alert=True)
         return
     if user_id not in (duel["p1"], duel["p2"]):
-        await query.answer("Bu düelloda oyuncu değilsin. Kendi düellonu aç: /duello", show_alert=True)
+        await ui.answer(query, "Bu düelloda oyuncu değilsin. Kendi düellonu aç: /duello", alert=True)
         return
     slot = "c1" if user_id == duel["p1"] else "c2"
     if data.get(slot):
-        await query.answer("Bu raunttaki seçimini zaten yaptın.")
+        await ui.answer(query, "Bu raunttaki seçimini zaten yaptın.")
         return
     data[slot] = choice
-    await query.answer(f"Seçimin: {RPS[choice][0]} {RPS[choice][1]}")
+    await ui.answer(query, f"Seçimin: {RPS[choice][0]} {RPS[choice][1]}")
     if not (data.get("c1") and data.get("c2")):
         save(duel_id, data)
         if is_online(duel):
@@ -437,17 +437,17 @@ async def xox_move(update, context, duel_id: int, cell: int) -> None:
     user_id = update.effective_user.id
     duel, data = load(duel_id)
     if duel is None or duel["state"] != "playing":
-        await query.answer("Bu düello bitti.", show_alert=True)
+        await ui.answer(query, "Bu düello bitti.", alert=True)
         return
     if user_id not in (duel["p1"], duel["p2"]):
-        await query.answer("Bu düelloda oyuncu değilsin.", show_alert=True)
+        await ui.answer(query, "Bu düelloda oyuncu değilsin.", alert=True)
         return
     mark = 1 if user_id == duel["p1"] else 2
     if data["turn"] != mark:
-        await query.answer("Sıra rakibinde!")
+        await ui.answer(query, "Sıra rakibinde!")
         return
     if data["board"][cell] != 0:
-        await query.answer("Bu kare dolu.")
+        await ui.answer(query, "Bu kare dolu.")
         return
     data["board"][cell] = mark
     win = xox_winner(data["board"])
@@ -461,7 +461,7 @@ async def xox_move(update, context, duel_id: int, cell: int) -> None:
         return
     data["turn"] = 2 if mark == 1 else 1
     save(duel_id, data)
-    await query.answer()
+    await ui.answer(query)
     await ui.safe_edit(query, xox_text(duel, data), xox_kb(duel_id, data["board"]))
 
 
@@ -606,22 +606,22 @@ async def box_pick(update, context, duel_id: int, idx: int) -> None:
     user_id = update.effective_user.id
     duel, data = load(duel_id)
     if duel is None or duel["state"] != "playing":
-        await query.answer("Bu düello bitti.", show_alert=True)
+        await ui.answer(query, "Bu düello bitti.", alert=True)
         return
     if user_id not in (duel["p1"], duel["p2"]):
-        await query.answer("Bu düelloda oyuncu değilsin.", show_alert=True)
+        await ui.answer(query, "Bu düelloda oyuncu değilsin.", alert=True)
         return
     slot = "v1" if user_id == duel["p1"] else "v2"
     if data.get(slot) is not None:
-        await query.answer("Zaten kutunu açtın.")
+        await ui.answer(query, "Zaten kutunu açtın.")
         return
     if str(idx) in data["picks"]:
-        await query.answer("Bu kutu açılmış, başka seç.")
+        await ui.answer(query, "Bu kutu açılmış, başka seç.")
         return
     value = data["values"][idx]
     data["picks"][str(idx)] = slot
     data[slot] = value
-    await query.answer(f"📦 Kutuda {value} puan vardı!")
+    await ui.answer(query, f"📦 Kutuda {value} puan vardı!")
     if data.get("v1") is not None and data.get("v2") is not None:
         winner = duel["p1"] if data["v1"] > data["v2"] else (duel["p2"] if data["v2"] > data["v1"] else None)
         save(duel_id, data)
@@ -775,16 +775,16 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     user_id = update.effective_user.id
     user = db.get_user(user_id)
     if user is None:
-        await query.answer("Önce bota özelden /start yaz.", show_alert=True)
+        await ui.answer(query, "Önce bota özelden /start yaz.", alert=True)
         return
 
     lang = i18n.lang_of(user_id)
     if action == "menu":
-        await query.answer()
+        await ui.answer(query)
         private = ui.is_private(update)
         await ui.nav(query, "duel", pvp_menu_text(user, private), pvp_menu_kb(private, lang))
     elif action == "on":
-        await query.answer()
+        await ui.answer(query)
         rows = [[(f"{MODES[g][0]} {MODES[g][1]}", f"pvp:ong:{g}")] for g in ONLINE_GAMES]
         rows.append([(i18n.t(lang, "b_back"), "pvp:menu")])
         await ui.safe_edit(query, (
@@ -792,7 +792,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             f"{i18n.t(lang, 'g_pick')}"
         ), ui.kb(rows))
     elif action == "ong":
-        await query.answer()
+        await ui.answer(query)
         game = parts[2]
         emoji, name, desc = MODES[game]
         rows = ui.bet_rows(f"pvp:onq:{game}", user)[:-1]
@@ -802,15 +802,15 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             f"{i18n.t(lang, 'g_choose_bet')}"
         ), ui.kb(rows))
     elif action == "onq":
-        await query.answer()
+        await ui.answer(query)
         await queue_join(update, context, parts[2], int(parts[3]))
     elif action == "onc":
-        await query.answer()
+        await ui.answer(query)
         await queue_leave(update, context)
     elif action == "new":
-        await query.answer()
+        await ui.answer(query)
         if ui.is_private(update):
-            await query.answer("Düellolar gruplarda kurulur. Beni bir gruba ekle!", show_alert=True)
+            await ui.answer(query, "Düellolar gruplarda kurulur. Beni bir gruba ekle!", alert=True)
             return
         game = parts[2]
         emoji, name, desc = MODES[game]
@@ -819,7 +819,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             f"{ui.header(user)}\n\nBahsi seç — rakip aynı tutarı yatırır 👇"
         ), ui.kb(ui.bet_rows(f"pvp:mk:{game}", user)[:-1] + [[("⬅️ PVP", "pvp:menu"), ("🏠 Menü", "m:main")]]))
     elif action == "mk":
-        await query.answer()
+        await ui.answer(query)
         await create_duel(update, context, parts[2], int(parts[3]))
     elif action == "acc":
         await accept_duel(update, context, int(parts[2]))
@@ -832,11 +832,11 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     elif action == "box":
         await box_pick(update, context, int(parts[2]), int(parts[3]))
     elif action == "list":
-        await query.answer()
+        await ui.answer(query)
         await ui.safe_edit(query, open_duels_text(), ui.kb([
             [("🔄 Yenile", "pvp:list")], [("⚔️ PVP Menü", "pvp:menu")]]))
     elif action == "top":
-        await query.answer()
+        await ui.answer(query)
         await ui.safe_edit(query, pvp_top_text(), ui.back_kb("pvp:menu"))
 
 

@@ -316,8 +316,9 @@ def staff_kb():
     rows = [[("➕ Oyunculardan yetkili seç", "ad:users:0")]]
     for row in db.all_("SELECT * FROM staff ORDER BY role LIMIT 10"):
         user = db.get_user(row["user_id"])
-        rows.append([(f"⚙️ {ui.name_of(user) if user else row['user_id']} izinleri",
-                      f"ad:perms:{row['user_id']}")])
+        name = ui.name_of(user) if user else str(row["user_id"])
+        rows.append([(f"⚙️ {name} izinleri", f"ad:perms:{row['user_id']}"),
+                     ("🗑 Yetkiyi al", f"ad:askdel:{row['user_id']}")])
     rows.append([("⬅️ Geri", "ad:home"), ("🏠", "m:main")])
     return ui.kb(rows)
 
@@ -428,7 +429,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     query = update.callback_query
     user_id = update.effective_user.id
     if not is_staff(user_id):
-        await query.answer("⛔ Bu bölüm sadece yöneticilere açık.", show_alert=True)
+        await ui.answer(query, "⛔ Bu bölüm sadece yöneticilere açık.", alert=True)
         return
     parts = query.data.split(":")
     action = parts[1]
@@ -436,19 +437,19 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     async def deny(what: str) -> bool:
         if guard(user_id, what):
             return False
-        await query.answer(f"⛔ Bu işlem için iznin yok.\n\nGereken izin: {PERMS.get(what, what)}\n"
-                           f"Kurucudan isteyebilirsin.", show_alert=True)
+        await ui.answer(query, f"⛔ Bu işlem için iznin yok.\n\nGereken izin: {PERMS.get(what, what)}\n"
+                           f"Kurucudan isteyebilirsin.", alert=True)
         return True
 
     if action == "home":
-        await query.answer("🛠 Panel")
+        await ui.answer(query, "🛠 Panel")
         await ui.safe_edit(query, panel_text(user_id), panel_kb(user_id))
         return
 
     if action == "stats":
         if await deny("stats"):
             return
-        await query.answer("📊 İstatistikler")
+        await ui.answer(query, "📊 İstatistikler")
         await ui.safe_edit(query, stats_text(),
                            ui.kb([[("🔄 Yenile", "ad:stats")], [("⬅️ Geri", "ad:home")]]))
         return
@@ -459,13 +460,13 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             return
         page = int(parts[2]) if len(parts) > 2 else 0
         kind = parts[3] if len(parts) > 3 else "aktif"
-        await query.answer("👥 Oyuncular")
+        await ui.answer(query, "👥 Oyuncular")
         await ui.safe_edit(query, users_text(kind, page), users_kb(kind, page))
         return
     if action == "card":
         target = int(parts[2])
         text, kb = user_card(target, user_id)
-        await query.answer()
+        await ui.answer(query)
         await ui.safe_edit(query, text, kb)
         return
 
@@ -477,7 +478,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             return
         user = db.get_user(target)
         _v, emoji, name = AMOUNTS[kind]
-        await query.answer()
+        await ui.answer(query)
         await ui.safe_edit(query, (
             f"{emoji} <b>{name.upper()} VER</b>\n{ui.LINE}\n"
             f"👤 {ui.name_of(user)}\n"
@@ -495,7 +496,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             return
         user = db.get_user(target)
         if not user:
-            await query.answer("Oyuncu yok.", show_alert=True)
+            await ui.answer(query, "Oyuncu yok.", alert=True)
             return
         notify = None
         if kind == "coin":
@@ -534,7 +535,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 note = f"⚡ +{value}"
                 notify = f"⚡ Yönetici sana <b>+{value}</b> enerji verdi!"
         db.log_action(user_id, f"ver_{kind}", f"{target} {note}")
-        await query.answer(f"✅ {note} → {ui.name_of(user)}", show_alert=True)
+        await ui.answer(query, f"✅ {note} → {ui.name_of(user)}", alert=True)
         if notify:
             try:
                 await context.bot.send_message(
@@ -552,12 +553,12 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             return
         target = int(parts[2])
         if role_of(target) and action == "uban":
-            await query.answer("⛔ Yetkili banlanamaz.", show_alert=True)
+            await ui.answer(query, "⛔ Yetkili banlanamaz.", alert=True)
             return
         db.upd(target, banned=1 if action == "uban" else 0)
         db.log_action(user_id, action, str(target))
-        await query.answer("🚫 Banlandı." if action == "uban" else "✅ Ban kaldırıldı.",
-                           show_alert=True)
+        await ui.answer(query, "🚫 Banlandı." if action == "uban" else "✅ Ban kaldırıldı.",
+                           alert=True)
         text, kb = user_card(target, user_id)
         await ui.safe_edit(query, text, kb)
         return
@@ -566,7 +567,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if action == "wds":
         if await deny("wds"):
             return
-        await query.answer("💸 Ödeme talepleri")
+        await ui.answer(query, "💸 Ödeme talepleri")
         await ui.safe_edit(query, withdrawals_text(), withdrawals_kb())
         return
     if action in ("pay", "rej"):
@@ -575,10 +576,10 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         req_id = int(parts[2])
         row = db.one("SELECT * FROM withdrawals WHERE id=?", (req_id,))
         if not row:
-            await query.answer("Talep bulunamadı.", show_alert=True)
+            await ui.answer(query, "Talep bulunamadı.", alert=True)
             return
         if row["state"] != "bekliyor":
-            await query.answer(f"⚠️ Bu talep zaten '{row['state']}'.", show_alert=True)
+            await ui.answer(query, f"⚠️ Bu talep zaten '{row['state']}'.", alert=True)
             await ui.safe_edit(query, withdrawals_text(), withdrawals_kb())
             return
         lang = i18n.lang_of(row["user_id"])
@@ -587,13 +588,13 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                    (ui.now(), f"onay:{user_id}", req_id))
             db.bump(row["user_id"], tmt_paid=row["amount"])
             msg = i18n.t(lang, "m_paid", amount=cash.request_display(row), id=req_id)
-            await query.answer(f"✅ #{req_id} ödendi olarak işaretlendi.", show_alert=True)
+            await ui.answer(query, f"✅ #{req_id} ödendi olarak işaretlendi.", alert=True)
         else:
             db.run("UPDATE withdrawals SET state='reddedildi', done_ts=?, note=? WHERE id=?",
                    (ui.now(), f"ret:{user_id}", req_id))
             db.bump(row["user_id"], tmt=row["amount"])
             msg = i18n.t(lang, "m_rejected", amount=cash.money(row["amount"]), id=req_id)
-            await query.answer(f"❌ #{req_id} reddedildi, para iade edildi.", show_alert=True)
+            await ui.answer(query, f"❌ #{req_id} reddedildi, para iade edildi.", alert=True)
         db.log_action(user_id, f"wd_{action}", f"#{req_id}")
         try:
             await context.bot.send_message(
@@ -608,21 +609,21 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     # --- yetkililer ---
     if action == "staff":
         if role_of(user_id) != "owner":
-            await query.answer("⛔ Sadece kurucu görebilir.", show_alert=True)
+            await ui.answer(query, "⛔ Sadece kurucu görebilir.", alert=True)
             return
-        await query.answer("👮 Yetkililer")
+        await ui.answer(query, "👮 Yetkililer")
         await ui.safe_edit(query, staff_text(), staff_kb())
         return
     if action == "mkstaff":
         if role_of(user_id) != "owner":
-            await query.answer("⛔ Sadece kurucu yetki verebilir.", show_alert=True)
+            await ui.answer(query, "⛔ Sadece kurucu yetki verebilir.", alert=True)
             return
         target, role = int(parts[2]), parts[3]
         db.staff_add(target, role, user_id)
         db.run("UPDATE staff SET perms=? WHERE user_id=?",
                (",".join(DEFAULT_PERMS.get(role, [])), target))
         db.log_action(user_id, "staff_add", f"{target} {role}")
-        await query.answer(f"✅ {ROLE_NAMES[role]} yapıldı.", show_alert=True)
+        await ui.answer(query, f"✅ {ROLE_NAMES[role]} yapıldı.", alert=True)
         try:
             await context.bot.send_message(
                 target, f"🎉 Sana <b>{ROLE_NAMES[role]}</b> yetkisi verildi!",
@@ -632,32 +633,58 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             pass
         await ui.safe_edit(query, perms_text(target), perms_kb(target))
         return
-    if action == "delstaff":
+    if action == "askdel":
         if role_of(user_id) != "owner":
-            await query.answer("⛔ Sadece kurucu silebilir.", show_alert=True)
+            await ui.answer(query, "⛔ Sadece kurucu silebilir.", alert=True)
             return
         target = int(parts[2])
+        target_user = db.get_user(target)
+        await ui.answer(query, "🗑 Onayla")
+        await ui.safe_edit(query, (
+            f"🗑 <b>YETKİYİ AL</b>\n{ui.LINE}\n"
+            f"👤 <b>{ui.name_of(target_user)}</b>  {ROLE_NAMES.get(role_of(target), '')}\n"
+            f"<code>{target}</code>\n\n"
+            "<blockquote>Bu kişinin bütün yönetici yetkileri ve izinleri silinecek.\n"
+            "Oyuncu hesabı ve parası etkilenmez, sadece yetkisi gider.</blockquote>\n"
+            "Emin misin?"
+        ), ui.kb([
+            [("✅ EVET, YETKİYİ AL", f"ad:delstaff:{target}")],
+            [("🚫 Vazgeç", "ad:staff")],
+        ]))
+        return
+    if action == "delstaff":
+        if role_of(user_id) != "owner":
+            await ui.answer(query, "⛔ Sadece kurucu silebilir.", alert=True)
+            return
+        target = int(parts[2])
+        old_role = role_of(target)
         db.staff_remove(target)
         db.log_action(user_id, "staff_del", str(target))
-        await query.answer("🗑 Yetki alındı.", show_alert=True)
+        await ui.answer(query, "🗑 Yetki alındı, artık normal oyuncu.", alert=True)
+        try:
+            await context.bot.send_message(
+                target, "ℹ️ Yönetici yetkin kaldırıldı. Oyuna normal oyuncu olarak devam "
+                        "edebilirsin.", reply_markup=ui.kb([[("🏠", "m:main")]]))
+        except Exception:
+            pass
         await ui.safe_edit(query, staff_text(), staff_kb())
         return
     if action == "perms":
         if role_of(user_id) != "owner":
-            await query.answer("⛔ Sadece kurucu izin verebilir.", show_alert=True)
+            await ui.answer(query, "⛔ Sadece kurucu izin verebilir.", alert=True)
             return
         target = int(parts[2])
-        await query.answer("⚙️ İzinler")
+        await ui.answer(query, "⚙️ İzinler")
         await ui.safe_edit(query, perms_text(target), perms_kb(target))
         return
     if action == "perm":
         if role_of(user_id) != "owner":
-            await query.answer("⛔ Sadece kurucu izin verebilir.", show_alert=True)
+            await ui.answer(query, "⛔ Sadece kurucu izin verebilir.", alert=True)
             return
         target, key = int(parts[2]), parts[3]
         now_on = toggle_perm(target, key)
         db.log_action(user_id, "perm", f"{target} {key}={int(now_on)}")
-        await query.answer(f"{'✅ açıldı' if now_on else '❌ kapatıldı'}: {PERMS[key]}")
+        await ui.answer(query, f"{'✅ açıldı' if now_on else '❌ kapatıldı'}: {PERMS[key]}")
         await ui.safe_edit(query, perms_text(target), perms_kb(target))
         return
     if action == "permall":
@@ -666,7 +693,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         target, on = int(parts[2]), parts[3] == "1"
         db.run("UPDATE staff SET perms=? WHERE user_id=?",
                (",".join(PERMS) if on else "-", target))
-        await query.answer("✅ Hepsi açıldı." if on else "❌ Hepsi kapatıldı.", show_alert=True)
+        await ui.answer(query, "✅ Hepsi açıldı." if on else "❌ Hepsi kapatıldı.", alert=True)
         await ui.safe_edit(query, perms_text(target), perms_kb(target))
         return
 
@@ -675,7 +702,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         if await deny("bc"):
             return
         context.user_data["await"] = {"kind": "admin_bc"}
-        await query.answer("📣 Mesajını gönder")
+        await ui.answer(query, "📣 Mesajını gönder")
         await ui.safe_edit(query, (
             f"📣 <b>REKLAM / DUYURU</b>\n{ui.LINE}\n"
             "<blockquote>Göndermek istediğin mesajı şimdi bana at.\n"
@@ -690,7 +717,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         bid = int(parts[2])
         row = db.one("SELECT * FROM broadcasts WHERE id=?", (bid,))
         if not row or row["state"] != "bekliyor":
-            await query.answer("⚠️ Bu duyuru zaten gönderilmiş.", show_alert=True)
+            await ui.answer(query, "⚠️ Bu duyuru zaten gönderilmiş.", alert=True)
             return
         db.run("UPDATE broadcasts SET state='gonderiliyor' WHERE id=?", (bid,))
         total = int(db.scalar("SELECT COUNT(*) FROM users WHERE banned=0"))
@@ -698,13 +725,13 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             f"📣 <b>Gönderiliyor...</b>\n{ui.LINE}\n✅ 0 / {total}", parse_mode=ParseMode.HTML)
         context.job_queue.run_once(broadcast_job, 1, data={"id": bid, "status_msg": msg.message_id})
         db.log_action(user_id, "broadcast", f"#{bid}")
-        await query.answer("📣 Gönderim başladı!", show_alert=True)
+        await ui.answer(query, "📣 Gönderim başladı!", alert=True)
         await ui.safe_edit(query, "📣 Arka planda gönderiliyor. Botu kullanmaya devam edebilirsin.",
                            ui.kb([[("⬅️ Panel", "ad:home")]]))
         return
     if action == "bccancel":
         db.run("UPDATE broadcasts SET state='iptal' WHERE id=?", (int(parts[2]),))
-        await query.answer("🚫 İptal edildi.")
+        await ui.answer(query, "🚫 İptal edildi.")
         await ui.safe_edit(query, panel_text(user_id), panel_kb(user_id))
         return
 
@@ -713,7 +740,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         target = int(parts[2])
         context.user_data["await"] = {"kind": "admin_msg", "target": target}
         user = db.get_user(target)
-        await query.answer("💬 Mesajını yaz")
+        await ui.answer(query, "💬 Mesajını yaz")
         await ui.safe_edit(query, (
             f"💬 <b>MESAJ GÖNDER</b>\n{ui.LINE}\n"
             f"👤 {ui.name_of(user)}\n"
@@ -728,7 +755,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         if await deny("events"):
             return
         boss = events.spawn_boss()
-        await query.answer(f"🐉 {boss['name']} çıktı!", show_alert=True)
+        await ui.answer(query, f"🐉 {boss['name']} çıktı!", alert=True)
         await ui.safe_edit(query, panel_text(user_id), panel_kb(user_id))
         return
     if action == "lottery":
@@ -736,7 +763,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             return
         db.run("UPDATE lottery SET end_ts=? WHERE done=0", (ui.now() - 1,))
         await events.job_lottery(context)
-        await query.answer("🎟 Çekiliş yapıldı!", show_alert=True)
+        await ui.answer(query, "🎟 Çekiliş yapıldı!", alert=True)
         await ui.safe_edit(query, panel_text(user_id), panel_kb(user_id))
         return
 
@@ -752,12 +779,12 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                          f"{ui.esc(row['what'])} {ui.esc(row['detail'])}")
         if not rows:
             lines.append("Henüz kayıt yok.")
-        await query.answer("📜 Kayıtlar")
+        await ui.answer(query, "📜 Kayıtlar")
         await ui.safe_edit(query, "\n".join(lines),
                            ui.kb([[("🔄 Yenile", "ad:logs")], [("⬅️ Geri", "ad:home")]]))
         return
 
-    await query.answer("Bu düğme artık kullanılmıyor.", show_alert=True)
+    await ui.answer(query, "Bu düğme artık kullanılmıyor.", alert=True)
 
 
 # ---------------------------------------------------------------------------
