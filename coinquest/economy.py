@@ -120,6 +120,10 @@ def sync_energy(user_id: int) -> int:
     if user is None:
         return 0
     mx = max_energy(user["level"])
+    if user["energy_unlim"]:
+        if user["energy"] < mx:
+            db.upd(user_id, energy=mx, energy_ts=int(time.time()))
+        return mx
     now = int(time.time())
     if user["energy"] >= mx:
         db.upd(user_id, energy=mx, energy_ts=now)
@@ -134,6 +138,9 @@ def sync_energy(user_id: int) -> int:
 
 
 def spend_energy(user_id: int, amount: int) -> bool:
+    user = db.get_user(user_id)
+    if user and user["energy_unlim"]:
+        return True
     sync_energy(user_id)
     cur = db.run(
         "UPDATE users SET energy=energy-? WHERE user_id=? AND energy>=?",

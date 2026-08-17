@@ -596,9 +596,13 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     action = parts[1] if len(parts) > 1 else "menu"
     user_id = update.effective_user.id
     if not ui.is_private(update):
-        await query.answer("🏪 Market özel sohbette açılır. Bana özelden yaz!", show_alert=True)
+        await query.answer("🏪 Market sadece bota özelden açılır.", show_alert=True)
         return
-    await query.answer()
+    TOASTS = {"menu": "🏪 Market", "cat": "👇 Eşyalar", "inv": "🎒 Eşyaların",
+              "item": "🔍 Detay", "bazaar": "🛒 Pazar", "biz": "🏭 İş yerin",
+              "gems": "💎 Elmas dükkanı", "bmine": "📄 İlanların",
+              "list": "🛒 Fiyat belirle"}
+    await query.answer(TOASTS.get(action, ""))
     user = db.get_user(user_id)
     if user is None:
         await ui.safe_edit(query, "Önce /start yaz.")

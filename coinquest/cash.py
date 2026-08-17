@@ -88,7 +88,10 @@ def panel_text(user_id: int) -> str:
         f"{i18n.t(lang, 'm_title')}\n{ui.LINE}\n"
         f"<blockquote>{i18n.t(lang, 'm_yours')}: <b>{money(user['tmt'])}</b>\n"
         f"{i18n.t(lang, 'm_coins')}: <b>{ui.fmt(user['coins'])}</b></blockquote>\n"
-        f"{i18n.t(lang, 'm_today')}: <b>{money(left_today(user))}</b>\n"
+        + (f"<blockquote>💎 USDT: <b>{usdt_str(user['tmt'])}</b>\n"
+           f"<i>1 USDT = {config.TMT_PER_USDT:g} {config.MONEY_NAME}</i>\n"
+           f"{i18n.t(lang, 'cur_note')}</blockquote>\n" if config.USDT_ENABLED else "")
+        + f"{i18n.t(lang, 'm_today')}: <b>{money(left_today(user))}</b>\n"
         f"{i18n.t(lang, 'm_need')}: <b>{money(config.MIN_WITHDRAW)}</b> ({durum})\n\n"
         + i18n.t(lang, "m_how", coins=ui.fmt(config.COINS_PER_MONEY), cur=config.MONEY_NAME,
                  cap=money(config.DAILY_MONEY_CAP), min=money(config.MIN_WITHDRAW))
@@ -207,7 +210,9 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if not ui.is_private(update):
         await query.answer(i18n.t(lang, "only_private"), show_alert=True)
         return
-    await query.answer()
+    TOASTS = {"menu": "💵", "wd": "💸 Para çekme", "amt": "💰 Tutar seç",
+              "cur": "💱 Para birimi", "mth": "📮 Ödeme yolu", "hist": "📜 Geçmiş"}
+    await query.answer(TOASTS.get(action, ""))
     user = db.get_user(user_id)
 
     if action == "menu":

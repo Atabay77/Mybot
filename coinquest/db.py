@@ -287,10 +287,12 @@ EXTRA_USER_COLUMNS = [
     ("captcha_try", "INTEGER NOT NULL DEFAULT 0"),  # kaç denemede geçti
     ("ref_paid", "INTEGER NOT NULL DEFAULT 0"),     # davet ödülü verildi mi
     ("wd_currency", "TEXT NOT NULL DEFAULT 'TMT'"), # tercih ettiği para birimi
+    ("energy_unlim", "INTEGER NOT NULL DEFAULT 0"), # 1 = sınırsız enerji
 ]
 
 
 EXTRA_TABLE_COLUMNS = {
+    "staff": [("perms", "TEXT NOT NULL DEFAULT ''")],
     "withdrawals": [("currency", "TEXT NOT NULL DEFAULT 'TMT'")],
     "broadcasts": [("src_chat", "INTEGER NOT NULL DEFAULT 0"),
                    ("src_msg", "INTEGER NOT NULL DEFAULT 0")],

@@ -769,7 +769,12 @@ async def start_skill(query, context, user_id: int, kind: str) -> None:
     user = db.get_user(user_id)
     left = skill_cooldown_left(user)
     if left > 0:
-        await query.answer(f"⏳ Beceri oyunları için {ui.dur(left)} beklemelisin.", show_alert=True)
+        await query.answer(
+            f"⏳ BU OYUN ŞU AN TEKRAR OYNANAMAZ\n\n"
+            f"Bilgi oyunları arasında {config.SKILL_COOLDOWN} saniye beklemek gerekiyor.\n"
+            f"Kalan süre: {ui.dur(left)}\n\n"
+            f"Bu arada 🎲 şans oyunlarını ya da 💼 çalışmayı dene.",
+            show_alert=True)
         return
     db.upd(user_id, last_skill=ui.now())
     reward_base = 700 + user["level"] * 70
@@ -781,12 +786,13 @@ async def start_skill(query, context, user_id: int, kind: str) -> None:
         shuffled = [options[i] for i in order]
         answer_pos = order.index(correct_idx)
         context.user_data["skill"] = {"kind": "quiz", "answer": answer_pos, "reward": reward_base,
-                                      "ts": time.time()}
+                                      "ts": time.time(), "limit": config.QUIZ_SECONDS}
         rows = [[(f"{chr(65 + i)}) {opt}", f"g:qa:{i}")] for i, opt in enumerate(shuffled)]
         rows.append([("🎮 Oyunlar", "g:menu")])
         await ui.safe_edit(query, (
-            f"🧠 <b>BİLGİ YARIŞMASI</b>\n\n{ui.esc(question)}\n\n"
-            f"🏆 Ödül: {ui.fmt(reward_base)} 🪙 + 30 XP"
+            f"🧠 <b>BİLGİ</b>\n{ui.LINE}\n"
+            f"<blockquote>{ui.esc(question)}</blockquote>\n"
+            f"⏱ <b>{config.QUIZ_SECONDS} saniye</b>  •  🏆 {ui.fmt(reward_base)} 🪙 + 30 XP"
         ), ui.kb(rows))
 
     elif kind == "math":
@@ -795,24 +801,27 @@ async def start_skill(query, context, user_id: int, kind: str) -> None:
         if op == "*":
             a, b = random.randint(3, 19), random.randint(3, 15)
         answer = {"+": a + b, "-": a - b, "*": a * b}[op]
-        reward = int(reward_base * (1.5 if op == "*" else 1.0))
+        reward = int(reward_base * (1.6 if op == "*" else 1.2))
+        secs = config.MATH_SECONDS
         context.user_data["skill"] = {"kind": "math", "answer": str(answer), "reward": reward,
-                                      "ts": time.time(), "limit": 25}
+                                      "ts": time.time(), "limit": secs}
         await ui.safe_edit(query, (
-            f"➗ <b>MATEMATİK SPRINT</b>\n\n"
-            f"<code>{a} {op} {b} = ?</code>\n\n"
-            f"Cevabı <b>25 saniye</b> içinde yaz.\n🏆 Ödül: {ui.fmt(reward)} 🪙"
+            f"➗ <b>MATEMATİK</b>\n{ui.LINE}\n"
+            f"<blockquote><b>   {a} {op} {b} = ?   </b></blockquote>\n"
+            f"⏱ <b>{secs} saniyen var!</b>  Cevabı hemen yaz.\n"
+            f"🏆 Ödül: {ui.fmt(reward)} 🪙"
         ), ui.kb([[("🎮 Oyunlar", "g:menu")]]))
 
     elif kind == "word":
         word = random.choice(WORDS)
         reward = int(reward_base * 1.3)
+        secs = config.WORD_SECONDS
         context.user_data["skill"] = {"kind": "word", "answer": word, "reward": reward,
-                                      "ts": time.time(), "limit": 40}
+                                      "ts": time.time(), "limit": secs}
         await ui.safe_edit(query, (
-            f"🔤 <b>KELİME BULMACA</b>\n\n"
-            f"Karışık harfler:\n<code>{scramble(word)}</code>\n\n"
-            f"Doğru kelimeyi <b>40 saniye</b> içinde yaz.\n🏆 Ödül: {ui.fmt(reward)} 🪙"
+            f"🔤 <b>KELİME</b>\n{ui.LINE}\n"
+            f"<blockquote><b>{scramble(word)}</b></blockquote>\n"
+            f"⏱ <b>{secs} saniyen var!</b>\n🏆 Ödül: {ui.fmt(reward)} 🪙"
         ), ui.kb([[("🎮 Oyunlar", "g:menu")]]))
 
     elif kind == "reflex":
@@ -843,6 +852,12 @@ async def skill_quiz_answer(query, context, user_id: int, idx: int) -> None:
     if not session or session["kind"] != "quiz":
         await query.answer("Bu soru artık geçerli değil.", show_alert=True)
         return
+    elapsed = time.time() - session.get("ts", 0)
+    if elapsed > session.get("limit", 10):
+        await result_screen(query, user_id,
+                            f"⏰ <b>SÜRE DOLDU!</b> ({elapsed:.0f} sn)\n\n"
+                            f"Çok yavaş kaldın, ödül yok.", "g:sk:quiz")
+        return
     if idx == session["answer"]:
         won = economy.payout(db.get_user(user_id), session["reward"])
         economy.add_coins(user_id, won, "bilgi yarışması")
@@ -867,13 +882,14 @@ async def skill_reflex_answer(query, context, user_id: int, idx: int) -> None:
     if idx != session["answer"]:
         text = f"❌ <b>Yanlış kare!</b>\n\nSüre: {elapsed:.2f} sn — ödül yok."
     else:
-        factor = max(0.15, min(1.0, 1.4 - elapsed))
+        factor = max(0.10, min(1.0, 1.0 - elapsed * 0.9))
         won = economy.payout(db.get_user(user_id), int(session["reward"] * factor))
         economy.add_coins(user_id, won, "refleks")
         economy.add_xp(user_id, 25)
         events.track(user_id, "skill")
         events.track(user_id, "play")
-        rating = "⚡ ŞİMŞEK GİBİ!" if elapsed < 0.9 else ("🔥 Hızlı!" if elapsed < 1.6 else "🐢 Yavaş ama olsun")
+        rating = ("⚡ ŞİMŞEK GİBİ!" if elapsed < 0.6 else
+                  "🔥 Hızlı!" if elapsed < 1.0 else "🐢 Yavaş kaldın")
         text = (
             f"🎯 <b>VURDUN!</b>\n\n{rating}\n"
             f"Tepki süresi: <b>{elapsed:.2f} sn</b>\n+{ui.fmt(won)} 🪙  +25 XP"
@@ -890,13 +906,15 @@ async def on_text_answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     user_id = update.effective_user.id
     given = (update.message.text or "").strip().lower()
     elapsed = time.time() - session["ts"]
-    if elapsed > session.get("limit", 30):
-        await ui.send(update, f"⏰ <b>Süre doldu!</b> ({elapsed:.0f} sn)\nDoğru cevap: <b>{session['answer']}</b>",
+    if elapsed > session.get("limit", 10):
+        await ui.send(update, f"⏰ <b>SÜRE DOLDU!</b> ({elapsed:.1f} saniye sürdü)\n"
+                              f"Doğru cevap: <b>{session['answer']}</b>\n"
+                              f"<i>Bir dahakine daha hızlı ol!</i>",
                       games_menu_kb(i18n.lang_of(update.effective_user.id)))
         return True
     if given.replace(" ", "") == str(session["answer"]).lower():
         won = economy.payout(db.get_user(user_id), session["reward"])
-        bonus = int(won * 0.3) if elapsed < 8 else 0
+        bonus = int(won * 0.4) if elapsed < session.get("limit", 10) * 0.4 else 0
         economy.add_coins(user_id, won + bonus, "beceri oyunu")
         economy.add_xp(user_id, 35)
         events.track(user_id, "skill")
@@ -1103,9 +1121,18 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     user_id = update.effective_user.id
 
     if not ui.is_private(update):
-        await query.answer("🎮 Oyun salonu sadece özel sohbette açık. Bana özelden yaz!", show_alert=True)
+        await query.answer("🎮 Oyunlar sadece bota özelden açılır. Bana özelden yaz!",
+                           show_alert=True)
         return
-    await query.answer()
+    TOASTS = {"menu": "🎮 Oyunlar", "cat": "👇 Seç", "pick": "💵 Bahsini seç",
+              "work": "💼 İşe gidiliyor...", "mine": "⛏ Maden kazılıyor...",
+              "arena": "🗡 Savaş başlıyor...", "sk": "🧠 Hazır ol!",
+              "play": "🎲 Oynanıyor...", "mn": "💣 Dikkat, mayın var!",
+              "hlbet": "🎴 Kartlar dağıtılıyor", "bjbet": "🃏 Kartlar dağıtılıyor",
+              "crbet": "🚀 Roket kalkıyor", "cfbet": "🪙 Tahminini seç",
+              "dicebet": "🎲 Tahminini seç", "rltbet": "🎡 Nereye oynuyorsun?",
+              "mnbet": "💣 Kaç mayın olsun?"}
+    await query.answer(TOASTS.get(action, ""))
     user = db.get_user(user_id)
     if user is None:
         await ui.safe_edit(query, "Önce /start yaz.")

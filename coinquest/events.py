@@ -455,10 +455,15 @@ def achievements_text(user_id: int) -> str:
 
 async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
-    await query.answer()
     user_id = update.effective_user.id
     parts = query.data.split(":")
     action = parts[1] if len(parts) > 1 else "quests"
+    TOASTS = {"quests": "📜 Görevlerin", "ach": "🏅 Başarımlar", "boss": "🐉 Canavar",
+              "lottery": "🎟 Çekiliş", "claim": "🎁 Ödüller"}
+    if action not in ("hit", "buy"):
+        await query.answer(TOASTS.get(action, ""))
+    else:
+        await query.answer()
 
     if action == "quests":
         await ui.safe_edit(query, quests_text(user_id), ui.kb([

@@ -548,10 +548,14 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     parts = query.data.split(":")
     action = parts[1] if len(parts) > 1 else "profile"
     user_id = update.effective_user.id
-    await query.answer()
+    TOASTS = {"profile": "👤 Hesabın", "daily": "🎁 Günlük hediye", "hourly": "⏰ Saatlik bonus",
+              "bank": "🏦 Banka", "top": "🏆 Sıralama", "clan": "🏰 Klan",
+              "ref": "👥 Davet linkin", "help": "❓ Yardım", "earn": "💸 Kazanma yolları",
+              "ccreate": "🏰 Klan adı yaz", "cdonate": "💰 Miktar yaz"}
+    await query.answer(TOASTS.get(action, ""))
     user = db.get_user(user_id)
     if user is None:
-        await ui.safe_edit(query, "Önce /start yaz.")
+        await ui.safe_edit(query, "Önce botu yeniden başlat (/start).")
         return
 
     if action == "profile":

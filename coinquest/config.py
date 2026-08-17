@@ -45,7 +45,10 @@ HOURLY_REWARD = 350
 WORK_COOLDOWN = 45 * 60
 MINE_COOLDOWN = 20 * 60
 ROB_COOLDOWN = 90 * 60
-SKILL_COOLDOWN = 60         # bilgi/matematik/kelime oyunları arası bekleme
+SKILL_COOLDOWN = 90         # bilgi/matematik/kelime oyunları arası bekleme
+MATH_SECONDS = 5            # matematik için süre
+WORD_SECONDS = 12           # kelime bulmaca süresi
+QUIZ_SECONDS = 10           # bilgi sorusu süresi
 HOURLY_COOLDOWN = 60 * 60
 
 BANK_INTEREST = 0.02        # 24 saatte bir uygulanan faiz

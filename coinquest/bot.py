@@ -71,16 +71,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = db.ensure_user(tg_user, referrer)
     if not existed:
         db.upd(tg_user.id, title=economy.title_for(1))
-        if referrer and referrer != tg_user.id and db.get_user(referrer):
-            social.grant_referral(tg_user.id, referrer)
-            try:
-                await context.bot.send_message(
-                    referrer,
-                    f"👥 <b>{ui.name_of(db.get_user(tg_user.id))}</b> davetinle katıldı!\n"
-                    f"+10.000 🪙 ve +2 💎 kazandın.",
-                    parse_mode=ParseMode.HTML)
-            except Exception:
-                pass
+        # davet ödülü bot koruması geçilince verilir (bkz. on_captcha)
         user = db.get_user(tg_user.id)
         # yeni oyuncu: önce dil seçsin, gerisi dil seçilince gelir
         await update.effective_chat.send_message(
@@ -97,6 +88,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         ), ui.pm_link())
         return
     lang = i18n.lang_of(tg_user.id)
+    user_id = tg_user.id
     try:                                   # eski alt klavyesi kalanlarda temizle
         msg = await update.effective_chat.send_message("🏰", reply_markup=ui.remove_bottom())
         await msg.delete()
@@ -105,7 +97,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not user["captcha_ok"]:
         await show_captcha(update.effective_chat, context, tg_user.id)
         return
-    await ui.screen(update, "menu", main_menu_text(user), ui.main_menu_kb(lang))
+    await ui.screen(update, "menu", main_menu_text(user), ui.main_menu_kb(lang, user_id))
 
 
 # ---------------------------------------------------------------------------
@@ -193,7 +185,7 @@ async def on_captcha(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             i18n.t(lang, "welcome", coins=ui.fmt(config.START_COINS), gems=config.START_GEMS),
             parse_mode=ParseMode.HTML)
     user = db.get_user(user_id)
-    await ui.screen(update, "menu", main_menu_text(user), ui.main_menu_kb(lang))
+    await ui.screen(update, "menu", main_menu_text(user), ui.main_menu_kb(lang, user_id))
 
 
 async def cmd_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -202,13 +194,14 @@ async def cmd_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     user = db.get_user(update.effective_user.id)
     await ui.screen(update, "menu", main_menu_text(user),
-                    ui.main_menu_kb(i18n.lang_of(user["user_id"])))
+                    ui.main_menu_kb(i18n.lang_of(user["user_id"]), user["user_id"]))
 
 
 async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     context.user_data.pop("await", None)
     games.clear_sessions(context)
-    await ui.send(update, "✅ İşlem iptal edildi.", ui.main_menu_kb() if ui.is_private(update) else None)
+    await ui.send(update, "✅ İşlem iptal edildi.", ui.main_menu_kb(i18n.lang_of(update.effective_user.id), update.effective_user.id)
+                     if ui.is_private(update) else None)
 
 
 async def on_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -231,7 +224,7 @@ async def on_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                 pass
             await show_captcha(query.message.chat, context, user_id)
             return
-        await ui.nav(query, "menu", main_menu_text(user), ui.main_menu_kb(lang))
+        await ui.nav(query, "menu", main_menu_text(user), ui.main_menu_kb(lang, user_id))
         return
 
     if not ui.is_private(update):
@@ -241,7 +234,7 @@ async def on_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     if action == "main":
         games.clear_sessions(context)
         user = db.get_user(user_id)
-        await ui.nav(query, "menu", main_menu_text(user), ui.main_menu_kb(lang))
+        await ui.nav(query, "menu", main_menu_text(user), ui.main_menu_kb(lang, user_id))
     elif action == "more":
         user = db.get_user(user_id)
         await ui.safe_edit(query, (
@@ -286,7 +279,7 @@ async def on_bottom_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 async def _open_menu(update, context):
     user = db.get_user(update.effective_user.id)
     lang = i18n.lang_of(user["user_id"])
-    await ui.screen(update, "menu", main_menu_text(user), ui.main_menu_kb(lang))
+    await ui.screen(update, "menu", main_menu_text(user), ui.main_menu_kb(lang, user["user_id"]))
 
 
 BOTTOM_ACTIONS = {
@@ -367,7 +360,7 @@ async def on_unknown_button(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     user = db.get_user(update.effective_user.id)
     if user and ui.is_private(update):
         await ui.nav(query, "menu", main_menu_text(user),
-                     ui.main_menu_kb(i18n.lang_of(user["user_id"])))
+                     ui.main_menu_kb(i18n.lang_of(user["user_id"]), user["user_id"]))
 
 
 async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:

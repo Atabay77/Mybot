@@ -120,22 +120,33 @@ günlük görevler, 13 başarım, 7 sıralama, arkadaş davet
 
 ---
 
-## 🛠 Yönetici paneli (`/admin`)
+## 🛠 Yönetim paneli
+
+Ana menüde **🛠 YÖNETİM PANELİ** düğmesi çıkar — bu düğmeyi sadece yetkililer görür.
+(Gizli komut olarak `/admin` de çalışır.)
+Panelde hiçbir yere ID veya miktar yazılmaz; her şey hazır düğmelerle yapılır.
 
 **Roller**
 | Rol | Nereden | Yapabildikleri |
 |---|---|---|
 | 👑 Kurucu | `.env` → `ADMIN_IDS` | her şey + yetkili ekleme/silme |
-| 🛠 Yönetici | panelden eklenir | ödeme, para verme, ban, reklam, destek |
-| 🎧 Destek | panelden eklenir | sadece destek kutusu |
+| 🛠 Yönetici | panelden eklenir | kurucunun açtığı izinler kadar |
+| 🎧 Destek | panelden eklenir | varsayılan: sadece destek kutusu |
+
+**İzinler tek tek açılır/kapanır** (👮 Yetkililer → ⚙️ İzinler):
+ödeme onaylama · coin/elmas verme · gerçek para ekleme · enerji verme · ban ·
+reklam · destek · oyuncu listesi · istatistik · canavar/çekiliş · kayıtlar.
+İzinsiz düğmeye basan "bu işlem için iznin yok" uyarısı alır.
 
 **Özellikler**
 - 💸 Ödeme talepleri — tek tuşla Ödedim / Reddet (ret otomatik iade)
 - 🎧 Destek kutusu — oyuncularla iki yönlü yazışma (fotoğraf, video, ses)
 - 📣 Reklam/duyuru — **her tür medya**, arka planda gönderilir, bot çalışmaya devam eder,
   canlı ilerleme çubuğu
-- 🔍 Oyuncu arama + tam kart (bakiye, geçmiş, ödemeler, bot koruması durumu)
-- 🪙 Coin / 💎 elmas / 💵 gerçek para ekleme
+- 👤 Oyuncu kartı: bakiye, geçmiş, ödemeler, bot koruması durumu
+- 🪙 Coin / 💎 elmas / 💵 gerçek para / ⚡ enerji verme — hazır miktar düğmeleriyle
+- ♾ Sınırsız enerji açma-kapama, coin/para sıfırlama
+- 👥 Oyuncu listesi (son katılanlar / son görülenler / en zenginler / parası olanlar / banlılar)
 - 🚫 Ban / ban kaldırma (yetkililer banlanamaz)
 - 👮 Yetkili ekle-sil, 📊 istatistik, 📜 hareket kayıtları
 - 🐉 Canavar çıkarma, 🎟 çekiliş yapma

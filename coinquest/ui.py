@@ -11,6 +11,7 @@ from telegram.constants import ParseMode
 from telegram.error import BadRequest
 
 import config
+import db
 import economy
 import i18n
 import media
@@ -79,9 +80,9 @@ def kb(rows: Iterable[Iterable[tuple[str, str]]]) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(out)
 
 
-def main_menu_kb(lang: str = i18n.DEFAULT) -> InlineKeyboardMarkup:
-    """Ana menü — sık kullanılanlar burada, gerisi 'Başgalary' içinde."""
-    return kb([
+def main_menu_kb(lang: str = i18n.DEFAULT, user_id: int = 0) -> InlineKeyboardMarkup:
+    """Ana menü. Yönetim düğmesi yalnızca yetkililere görünür."""
+    rows = [
         [(i18n.t(lang, "b_play"), "g:menu")],
         [(i18n.t(lang, "b_money"), "cash:menu")],
         [(i18n.t(lang, "b_gift"), "s:daily"), (i18n.t(lang, "b_shop"), "mk:menu")],
@@ -90,7 +91,10 @@ def main_menu_kb(lang: str = i18n.DEFAULT) -> InlineKeyboardMarkup:
         [(i18n.t(lang, "b_quests"), "ev:quests"), (i18n.t(lang, "b_top"), "s:top")],
         [(i18n.t(lang, "b_friends"), "s:ref"), (i18n.t(lang, "b_help"), "s:help")],
         [(i18n.t(lang, "b_support"), "sup:menu"), (i18n.t(lang, "b_more"), "m:more")],
-    ])
+    ]
+    if user_id and db.staff_role(user_id):
+        rows.append([("🛠 YÖNETİM PANELİ", "ad:home")])
+    return kb(rows)
 
 
 def more_menu_kb(lang: str = i18n.DEFAULT) -> InlineKeyboardMarkup:
@@ -98,6 +102,7 @@ def more_menu_kb(lang: str = i18n.DEFAULT) -> InlineKeyboardMarkup:
         [(i18n.t(lang, "b_bank"), "s:bank"), (i18n.t(lang, "b_biz"), "mk:biz")],
         [(i18n.t(lang, "b_bazaar"), "mk:bazaar"), (i18n.t(lang, "b_clan"), "s:clan")],
         [(i18n.t(lang, "b_lottery"), "ev:lottery"), (i18n.t(lang, "b_lang"), "m:lang")],
+        [(i18n.t(lang, "b_support"), "sup:menu")],
         [(i18n.t(lang, "b_home"), "m:main")],
     ])
 
