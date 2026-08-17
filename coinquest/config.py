@@ -62,3 +62,13 @@ LOTTERY_TICKET_PRICE = 750
 LOTTERY_INTERVAL_MIN = 240
 LOTTERY_SEED = 5_000        # her çekiliş sonrası havuza eklenen taban
 BUSINESS_COLLECT_SEC = 4 * 3600
+
+# --- GERÇEK PARA (ÇEKİM) AYARLARI ---
+# Bakiye "kuruş" olarak tutulur: 100 = 1 TMT.  Böylece kuruş hassasiyeti kaybolmaz.
+MONEY_NAME = os.environ.get("MONEY_NAME", "TMT")   # para birimi adı
+COINS_PER_MONEY = 1_000_000        # 1 TMT kaç oyun coin'i eder
+DAILY_MONEY_CAP = 70               # günde en fazla 0.70 TMT çevrilebilir
+MIN_WITHDRAW = 500                 # en az 5.00 TMT çekilebilir
+WITHDRAW_MIN_LEVEL = 10            # çekim için gereken seviye
+WITHDRAW_MIN_DAYS = 7              # hesabın en az kaç günlük olması gerektiği
+# 0.70 x 7 gün = 4.90 TMT  ->  5 TMT'ye ulaşmak matematiksel olarak en az 8 gün sürer.

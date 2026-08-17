@@ -4,7 +4,7 @@ import html
 import time
 from typing import Iterable, Optional
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, Update
 from telegram.constants import ParseMode
 from telegram.error import BadRequest
 
@@ -74,15 +74,28 @@ def kb(rows: Iterable[Iterable[tuple[str, str]]]) -> InlineKeyboardMarkup:
 
 def main_menu_kb() -> InlineKeyboardMarkup:
     return kb([
-        [("🎮 Oyunlar", "g:menu"), ("⚔️ PVP Arena", "pvp:menu")],
-        [("🏪 Market", "mk:menu"), ("🎒 Envanter", "mk:inv")],
-        [("🛒 Pazar", "mk:bazaar"), ("🏭 İşletme", "mk:biz")],
-        [("👤 Profil", "s:profile"), ("🏰 Klan", "s:clan")],
-        [("🎁 Günlük", "s:daily"), ("🏦 Banka", "s:bank")],
-        [("🐉 Boss", "ev:boss"), ("🎟 Piyango", "ev:lottery")],
+        [("🎮 Oyunlar", "g:menu"), ("💵 Para Çek", "cash:menu")],
+        [("⚔️ Düello", "pvp:menu"), ("💰 Cüzdanım", "s:profile")],
+        [("🏪 Market", "mk:menu"), ("🎒 Eşyalarım", "mk:inv")],
+        [("🛒 Pazar", "mk:bazaar"), ("🏭 İş Yerim", "mk:biz")],
+        [("🎁 Günlük Hediye", "s:daily"), ("🏦 Banka", "s:bank")],
+        [("🐉 Canavar", "ev:boss"), ("🎟 Çekiliş", "ev:lottery")],
         [("📜 Görevler", "ev:quests"), ("🏆 Sıralama", "s:top")],
-        [("💸 Kazanç Yolları", "s:earn"), ("ℹ️ Yardım", "s:help")],
+        [("👥 Arkadaş Çağır", "s:ref"), ("❓ Nasıl Oynanır", "s:help")],
     ])
+
+
+# Ekranın altında sürekli duran butonlar — kullanıcı hiç komut yazmak zorunda kalmasın
+BOTTOM_BUTTONS = [
+    ["🎮 Oyunlar", "💰 Cüzdanım"],
+    ["🎁 Günlük Hediye", "💵 Para Çek"],
+    ["🏪 Market", "🎒 Eşyalarım"],
+    ["👥 Arkadaş Çağır", "📖 Menü"],
+]
+
+
+def bottom_kb() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(BOTTOM_BUTTONS, resize_keyboard=True, is_persistent=True)
 
 
 def back_kb(target: str = "m:main", label: str = "⬅️ Geri") -> InlineKeyboardMarkup:

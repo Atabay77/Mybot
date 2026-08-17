@@ -12,6 +12,7 @@ from telegram.ext import (
 )
 
 import admin
+import cash
 import config
 import db
 import economy
@@ -44,11 +45,12 @@ def main_menu_text(user) -> str:
                      f"({ui.fmt(boss['hp'])} HP kaldı) → /boss\n")
     ready = sum(1 for q in events.daily_quests(user["user_id"])
                 if not q["claimed"] and q["progress"] >= q["target"])
-    quest_line = f"\n🎁 <b>{ready} görev ödülün hazır!</b>\n" if ready else ""
+    quest_line = f"\n🎁 <b>{ready} görevin bitti, ödülünü al!</b>\n" if ready else ""
     return (
-        f"🏰 <b>COINQUEST</b> — <i>{ui.esc(user['title'] or economy.title_for(user['level']))}</i>\n"
-        f"Hoş geldin, <b>{ui.name_of(user)}</b>!\n\n"
+        f"🏰 <b>COINQUEST</b>\n"
+        f"Merhaba <b>{ui.name_of(user)}</b> 👋\n\n"
         f"{ui.header(user)}\n"
+        f"💵 Gerçek para: <b>{cash.money(user['tmt'])}</b>\n"
         f"{boss_line}{quest_line}\n"
         "Ne yapmak istersin? 👇"
     )
@@ -79,20 +81,19 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 pass
         user = db.get_user(tg_user.id)
         welcome = (
-            "🏰 <b>COINQUEST'E HOŞ GELDİN!</b>\n\n"
-            f"Cebine <b>{ui.fmt(config.START_COINS)}</b> 🪙 ve <b>{config.START_GEMS}</b> 💎 koydum, "
-            "bir de kazma verdim. ⛏\n\n"
-            "<b>Burada neler var?</b>\n"
-            "🎮 9 bahisli + 4 beceri oyunu\n"
-            "⚔️ Arkadaşlarınla 5 çeşit PVP düellosu\n"
-            "🏪 Ekipman marketi ve oyuncu pazarı (istediğin fiyata sat!)\n"
-            "🏭 Pasif gelirli işletmeler\n"
-            "🐉 Herkesin birlikte vurduğu dünya bossu\n"
-            "🏰 Klanlar, 🎟 piyango, 📜 günlük görevler, 🏅 başarımlar\n"
-            "🥷 Soygun, 🏦 banka, 🎉 grup parti oyunları\n\n"
-            "İlk işin: <b>🎁 Günlük ödülünü al</b> ve bir oyuna gir!"
+            "🏰 <b>HOŞ GELDİN!</b>\n\n"
+            f"Sana hediye: <b>{ui.fmt(config.START_COINS)}</b> 🪙 coin ve "
+            f"<b>{config.START_GEMS}</b> 💎 elmas.\n\n"
+            "<b>Burada ne yapılır?</b>\n"
+            "🎮 Oyun oynarsın, coin kazanırsın\n"
+            "⚔️ Arkadaşınla yarışırsın, onun coinini alırsın\n"
+            "🏪 Kazandığınla eşya alırsın, güçlenirsin\n"
+            f"💵 Coini <b>gerçek paraya</b> çevirirsin ({cash.money(config.MIN_WITHDRAW)} olunca çekersin)\n\n"
+            "👇 Aşağıdaki butonları kullan, hiçbir şey yazmana gerek yok."
         )
-        await ui.send(update, welcome, ui.main_menu_kb())
+        await update.effective_chat.send_message(welcome, parse_mode=ParseMode.HTML,
+                                                 reply_markup=ui.bottom_kb())
+        await ui.send(update, main_menu_text(user), ui.main_menu_kb())
         return
 
     if not ui.is_private(update):
@@ -102,12 +103,13 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "Özelde: tüm oyun salonu, market, envanter ve daha fazlası."
         ), ui.pm_link())
         return
+    await update.effective_chat.send_message("👇 Butonlar hazır.", reply_markup=ui.bottom_kb())
     await ui.send(update, main_menu_text(user), ui.main_menu_kb())
 
 
 async def cmd_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not ui.is_private(update):
-        await ui.send(update, "Menü özel sohbette açılır. Grupta: /duello, /parti, /boss", ui.pm_link())
+        await ui.send(update, "Menü bana özelden yazınca açılır 🙂", ui.pm_link())
         return
     user = db.get_user(update.effective_user.id)
     await ui.send(update, main_menu_text(user), ui.main_menu_kb())
@@ -151,11 +153,43 @@ async def on_custom_bet(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 # METİN YÖNLENDİRİCİ
 # ---------------------------------------------------------------------------
 
+async def on_bottom_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """Ekranın altındaki sabit butonlara basıldığında ilgili ekranı açar."""
+    text = (update.message.text or "").strip()
+    user_id = update.effective_user.id
+    if text not in BOTTOM_ACTIONS:
+        return False
+    context.user_data.pop("await", None)      # yarım kalan yazma işlemi varsa iptal
+    games.clear_sessions(context)
+    await BOTTOM_ACTIONS[text](update, context)
+    return True
+
+
+async def _open_menu(update, context):
+    user = db.get_user(update.effective_user.id)
+    await ui.send(update, main_menu_text(user), ui.main_menu_kb())
+
+
+BOTTOM_ACTIONS = {
+    "🎮 Oyunlar": lambda u, c: games.cmd_games(u, c),
+    "💰 Cüzdanım": lambda u, c: social.cmd_profile(u, c),
+    "🎁 Günlük Hediye": lambda u, c: social.cmd_daily(u, c),
+    "💵 Para Çek": lambda u, c: cash.cmd_cash(u, c),
+    "🏪 Market": lambda u, c: market.cmd_market(u, c),
+    "🎒 Eşyalarım": lambda u, c: market.cmd_inventory(u, c),
+    "👥 Arkadaş Çağır": lambda u, c: social.cmd_ref(u, c),
+    "📖 Menü": _open_menu,
+}
+
+
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message is None or not update.message.text:
         return
     if ui.is_private(update):
-        for handler in (admin.on_text, market.on_text, social.on_text, games.on_text_answer):
+        if await on_bottom_button(update, context):
+            return
+        for handler in (admin.on_text, cash.on_text, market.on_text, social.on_text,
+                        games.on_text_answer):
             try:
                 if await handler(update, context):
                     return
@@ -202,31 +236,13 @@ async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def post_init(app: Application) -> None:
+    # Kısa liste: normalde kimse komut yazmaz, her şey butonlarla yapılır.
     await app.bot.set_my_commands([
-        BotCommand("start", "Botu başlat / ana menü"),
-        BotCommand("menu", "Ana menü"),
-        BotCommand("oyunlar", "Oyun salonu"),
-        BotCommand("duello", "Altın karşılığı PVP düellosu"),
-        BotCommand("kabul", "Açık düelloyu kabul et"),
-        BotCommand("parti", "Grup oyunları"),
-        BotCommand("profil", "Profilin ve istatistikler"),
-        BotCommand("bakiye", "Altın ve elmasların"),
-        BotCommand("gunluk", "Günlük ödül"),
-        BotCommand("saatlik", "Saatlik bonus"),
-        BotCommand("market", "Ekipman marketi"),
-        BotCommand("envanter", "Envanter ve ekipman"),
-        BotCommand("pazar", "Oyuncu pazarı"),
-        BotCommand("isletme", "İşletmeler / pasif gelir"),
-        BotCommand("banka", "Banka işlemleri"),
-        BotCommand("transfer", "Arkadaşına para gönder"),
-        BotCommand("soy", "Birini soymayı dene"),
-        BotCommand("klan", "Klan sistemi"),
-        BotCommand("gorevler", "Günlük görevler"),
-        BotCommand("siralama", "Sıralamalar"),
-        BotCommand("boss", "Dünya bossu"),
-        BotCommand("piyango", "Piyango çekilişi"),
-        BotCommand("davet", "Arkadaş davet et"),
-        BotCommand("yardim", "Nasıl oynanır"),
+        BotCommand("start", "🏰 Başla / menü"),
+        BotCommand("para", "💵 Gerçek para ekranı"),
+        BotCommand("duello", "⚔️ Grupta düello kur"),
+        BotCommand("parti", "🎉 Grup oyunları"),
+        BotCommand("yardim", "❓ Nasıl oynanır"),
     ])
     me = await app.bot.get_me()
     if not config.BOT_USERNAME:
@@ -266,6 +282,7 @@ def build_app() -> Application:
     app.add_handler(CommandHandler(["piyango", "lottery"], events.cmd_lottery))
     app.add_handler(CommandHandler(["davet", "ref"], social.cmd_ref))
     app.add_handler(CommandHandler(["yardim", "help"], social.cmd_help))
+    app.add_handler(CommandHandler(["para", "cek", "cash"], cash.cmd_cash))
     app.add_handler(CommandHandler("admin", admin.cmd_admin))
 
     # callback yönlendirmeleri
@@ -277,6 +294,7 @@ def build_app() -> Application:
     app.add_handler(CallbackQueryHandler(market.on_callback, pattern=r"^mk:"))
     app.add_handler(CallbackQueryHandler(social.on_callback, pattern=r"^s:"))
     app.add_handler(CallbackQueryHandler(events.on_callback, pattern=r"^ev:"))
+    app.add_handler(CallbackQueryHandler(cash.on_callback, pattern=r"^cash:"))
     app.add_handler(CallbackQueryHandler(admin.on_callback, pattern=r"^ad:"))
 
     # düz metin

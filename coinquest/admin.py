@@ -7,6 +7,7 @@ from telegram import Update
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
+import cash
 import config
 import db
 import economy
@@ -51,8 +52,35 @@ def stats_text() -> str:
     )
 
 
+def withdrawals_text() -> str:
+    rows = db.all_("SELECT * FROM withdrawals WHERE state='bekliyor' ORDER BY id LIMIT 10")
+    total = int(db.scalar("SELECT COALESCE(SUM(amount),0) FROM withdrawals WHERE state='bekliyor'"))
+    paid = int(db.scalar("SELECT COALESCE(SUM(amount),0) FROM withdrawals WHERE state='odendi'"))
+    lines = ["💸 <b>ÇEKİM TALEPLERİ</b>\n",
+             f"⏳ Bekleyen: <b>{cash.money(total)}</b> ({len(rows)} talep)",
+             f"✅ Bugüne kadar ödenen: <b>{cash.money(paid)}</b>\n"]
+    if not rows:
+        lines.append("Bekleyen talep yok. 👌")
+    for row in rows:
+        user = db.get_user(row["user_id"])
+        lines.append(
+            f"#{row['id']} — <b>{cash.money(row['amount'])}</b>\n"
+            f"    👤 {ui.name_of(user)} (<code>{row['user_id']}</code>) • Sv.{user['level'] if user else '?'}\n"
+            f"    {cash.METHODS.get(row['method'], row['method'])}: <code>{ui.esc(row['details'])}</code>")
+    return "\n".join(lines)
+
+
+def withdrawals_kb():
+    rows_db = db.all_("SELECT * FROM withdrawals WHERE state='bekliyor' ORDER BY id LIMIT 10")
+    rows = [[(f"✅ #{r['id']} ödedim", f"ad:pay:{r['id']}"),
+             (f"❌ reddet", f"ad:rej:{r['id']}")] for r in rows_db]
+    rows.append([("🔄 Yenile", "ad:wds"), ("⬅️ Panel", "ad:stats")])
+    return ui.kb(rows)
+
+
 def panel_kb():
     return ui.kb([
+        [("💸 Çekim Talepleri", "ad:wds")],
         [("📊 İstatistik", "ad:stats")],
         [("🪙 Altın Ver", "ad:give"), ("💎 Elmas Ver", "ad:gems")],
         [("🚫 Ban", "ad:ban"), ("✅ Ban Kaldır", "ad:unban")],
@@ -94,6 +122,40 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         text, kind = PROMPTS[action]
         context.user_data["await"] = {"kind": kind}
         await ui.safe_edit(query, text + "\n\nİptal: /iptal", ui.back_kb("ad:stats"))
+    elif action == "wds":
+        await ui.safe_edit(query, withdrawals_text(), withdrawals_kb())
+    elif action in ("pay", "rej"):
+        req_id = int(query.data.split(":")[2])
+        row = db.one("SELECT * FROM withdrawals WHERE id=?", (req_id,))
+        if not row:
+            await query.answer("Talep bulunamadı.", show_alert=True)
+            return
+        if row["state"] != "bekliyor":
+            await query.answer(f"Bu talep zaten '{row['state']}'.", show_alert=True)
+            await ui.safe_edit(query, withdrawals_text(), withdrawals_kb())
+            return
+        if action == "pay":
+            db.run("UPDATE withdrawals SET state='odendi', done_ts=? WHERE id=?", (ui.now(), req_id))
+            db.bump(row["user_id"], tmt_paid=row["amount"])
+            msg = (f"✅ <b>PARAN ÖDENDİ!</b>\n\n"
+                   f"💵 {cash.money(row['amount'])} gönderildi.\n"
+                   f"🔖 Talep no: #{req_id}\n\n"
+                   "Oynamaya devam et, yeni para biriktir! 🎮")
+            await query.answer(f"#{req_id} ödendi olarak işaretlendi.")
+        else:
+            db.run("UPDATE withdrawals SET state='reddedildi', done_ts=?, "
+                   "note='yönetici reddetti' WHERE id=?", (ui.now(), req_id))
+            db.bump(row["user_id"], tmt=row["amount"])
+            msg = (f"❌ <b>Çekim talebin reddedildi.</b>\n\n"
+                   f"💵 {cash.money(row['amount'])} hesabına geri yüklendi.\n"
+                   f"🔖 Talep no: #{req_id}\n\n"
+                   "Sebebi için yöneticiye yazabilirsin.")
+            await query.answer(f"#{req_id} reddedildi, para iade edildi.")
+        try:
+            await context.bot.send_message(row["user_id"], msg, parse_mode=ParseMode.HTML)
+        except Exception:
+            pass
+        await ui.safe_edit(query, withdrawals_text(), withdrawals_kb())
     elif action == "boss":
         boss = events.spawn_boss()
         await ui.safe_edit(query, f"🐉 Boss doğdu: <b>{ui.esc(boss['name'])}</b> "

@@ -177,6 +177,19 @@ CREATE TABLE IF NOT EXISTS tx (
 );
 CREATE INDEX IF NOT EXISTS idx_tx_user ON tx(user_id, id);
 
+CREATE TABLE IF NOT EXISTS withdrawals (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL,
+    amount     INTEGER NOT NULL,
+    method     TEXT NOT NULL DEFAULT '',
+    details    TEXT NOT NULL DEFAULT '',
+    state      TEXT NOT NULL DEFAULT 'bekliyor',
+    created_ts INTEGER NOT NULL DEFAULT 0,
+    done_ts    INTEGER NOT NULL DEFAULT 0,
+    note       TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_wd_state ON withdrawals(state, id);
+
 CREATE TABLE IF NOT EXISTS meta (
     k TEXT PRIMARY KEY,
     v TEXT NOT NULL DEFAULT ''
@@ -201,10 +214,28 @@ def connect() -> sqlite3.Connection:
     return _conn
 
 
+# Sonradan eklenen kullanıcı sütunları (eski veritabanları otomatik güncellenir)
+EXTRA_USER_COLUMNS = [
+    ("tmt", "INTEGER NOT NULL DEFAULT 0"),          # gerçek para bakiyesi (kuruş: 100 = 1 TMT)
+    ("tmt_today", "INTEGER NOT NULL DEFAULT 0"),    # bugün çevrilen miktar
+    ("tmt_day", "TEXT NOT NULL DEFAULT ''"),        # bugünün tarihi
+    ("tmt_paid", "INTEGER NOT NULL DEFAULT 0"),     # bugüne kadar ödenen toplam
+]
+
+
+def _migrate() -> None:
+    have = {row["name"] for row in all_("PRAGMA table_info(users)")}
+    for name, ddl in EXTRA_USER_COLUMNS:
+        if name not in have:
+            run(f"ALTER TABLE users ADD COLUMN {name} {ddl}")
+            log.info("Veritabanı güncellendi: users.%s eklendi", name)
+
+
 def init() -> None:
     conn = connect()
     conn.executescript(SCHEMA)
     conn.commit()
+    _migrate()
     log.info("Veritabanı hazır: %s", config.DB_PATH)
 
 

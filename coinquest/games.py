@@ -37,13 +37,13 @@ GAMES_INFO = {
 
 def games_menu_text(user) -> str:
     return (
-        "🎮 <b>OYUN SALONU</b>\n"
+        "🎮 <b>OYUNLAR</b>\n"
         f"{ui.header(user)}\n\n"
-        f"💵 Bahis aralığı: {ui.fmt(config.MIN_BET)} – {ui.fmt(economy.max_bet(user))} 🪙\n"
-        "<i>Bahis limiti seviyenle birlikte artar.</i>\n\n"
-        "<b>💰 Bahisli oyunlar</b> — kazanç riskli\n"
-        "<b>🧠 Beceri oyunları</b> — bedava, bilgiyle kazan\n"
-        "<b>⚒ Aktiviteler</b> — bekleme süreli garanti gelir"
+        f"💵 Koyabileceğin coin: {ui.fmt(config.MIN_BET)} – {ui.fmt(economy.max_bet(user))}\n"
+        "<i>Seviyen yükseldikçe daha çok coin koyabilirsin.</i>\n\n"
+        "🎲 <b>Şans oyunları</b> — coin koyarsın, katlayabilirsin ama kaybedebilirsin de\n"
+        "🧠 <b>Bilgi oyunları</b> — bedava, kaybetmezsin\n"
+        "⚒ <b>İş oyunları</b> — belli aralıklarla kesin kazanç"
     )
 
 
@@ -57,8 +57,8 @@ def games_menu_kb() -> "object":
         [("🧠 Bilgi", "g:sk:quiz"), ("➗ Matematik", "g:sk:math")],
         [("🔤 Kelime", "g:sk:word"), ("⚡ Refleks", "g:sk:reflex")],
         [("💼 Çalış", "g:work"), ("⛏ Maden", "g:mine")],
-        [("🗡 Arena (PvE)", "g:arena")],
-        [("🏠 Menü", "m:main")],
+        [("🗡 Canavar Avı", "g:arena")],
+        [("💵 Para Çek", "cash:menu"), ("🏠 Menü", "m:main")],
     ])
 
 
