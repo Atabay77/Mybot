@@ -1,7 +1,8 @@
 # 🏰 CoinQuest — Telegram Oyun Botu
 
 Oyun oyna → coin kazan → **gerçek paraya çevir**.
-Her şey **butonlarla** yapılır, kullanıcı komut yazmaz. Tamamen Türkçe.
+Her şey **butonlarla** yapılır, kullanıcı komut yazmaz.
+**3 dil:** 🇹🇲 Türkmençe (varsayılan) · 🇷🇺 Русский · 🇹🇷 Türkçe
 
 ---
 
@@ -59,6 +60,32 @@ Oyuncu ne kadar zengin olursa olsun bunu hızlandıramaz.
 `/admin` → 💸 Çekim Talepleri → **✅ Ödedim** / **❌ Reddet**.
 Reddedersen para oyuncuya otomatik geri yüklenir. Ödemeyi elden/havale sen yaparsın,
 bot para tutmaz. Not: bot **para yatırma almaz**, coin sadece oynayarak kazanılır.
+
+---
+
+## 🌐 Diller
+Yeni oyuncu ilk girişte dil seçer. Sonra istediği zaman
+**⚙️ Başgalary → 🌐 Dil** ile değiştirir. Varsayılan Türkmençe.
+
+Yazıları değiştirmek/eklemek: `i18n.py` içindeki `STR` sözlüğü.
+Her satır şöyle: `"anahtar": {"tk": "...", "ru": "...", "tr": "..."}`
+
+Şu an 3 dilde olan bölümler: menüler, butonlar, karşılama, para ekranı,
+günlük hediye, yardım, oyun kategorileri, çekim akışı.
+Derin ekranlar (market listesi, klan, sıralama, yönetici) şimdilik Türkçe.
+
+## 🖼 Resim ekleme
+`images/` klasörüne şu adlarla resim koy — bot o ekranı fotoğraflı gönderir.
+Resim yoksa sadece yazı gider, hata olmaz.
+
+`karsilama · menu · para · oyunlar · hediye · market · yardim · duello · canavar · kazandin`
+(jpg/png/webp, önerilen 1280x720)
+
+```bash
+# bilgisayarından sunucuya resim atmak için:
+scp menu.jpg root@SUNUCU_IP:/opt/coinquest/images/
+systemctl restart coinquest
+```
 
 ---
 

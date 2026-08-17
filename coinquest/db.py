@@ -220,6 +220,7 @@ EXTRA_USER_COLUMNS = [
     ("tmt_today", "INTEGER NOT NULL DEFAULT 0"),    # bugün çevrilen miktar
     ("tmt_day", "TEXT NOT NULL DEFAULT ''"),        # bugünün tarihi
     ("tmt_paid", "INTEGER NOT NULL DEFAULT 0"),     # bugüne kadar ödenen toplam
+    ("lang", "TEXT NOT NULL DEFAULT 'tk'"),         # dil: tk / ru / tr
 ]
 
 

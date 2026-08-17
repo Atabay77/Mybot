@@ -689,7 +689,7 @@ async def cmd_market(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         await ui.send(update, "🏪 Market özel sohbette açılıyor.", ui.pm_link())
         return
     user = db.get_user(update.effective_user.id)
-    await ui.send(update, market_text(user), market_kb())
+    await ui.screen(update, "market", market_text(user), market_kb())
 
 
 async def cmd_inventory(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

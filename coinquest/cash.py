@@ -13,18 +13,17 @@ from telegram.ext import ContextTypes
 import config
 import db
 import economy
+import i18n
 import ui
 
-METHODS = {
-    "karta": "💳 Banka kartı",
-    "telefon": "📱 Telefon numarası",
-    "diger": "✍️ Diğer",
-}
+METHOD_KEYS = {"karta": "pm_card", "telefon": "pm_phone", "diger": "pm_other"}
+ASK_KEYS = {"karta": "pm_card_ask", "telefon": "pm_phone_ask", "diger": "pm_other_ask"}
+
+money = ui.money            # 500 -> "5.00 TMT"
 
 
-def money(value: int) -> str:
-    """500 -> '5.00 TMT'"""
-    return f"{value / 100:.2f} {config.MONEY_NAME}"
+def method_name(key: str, lang: str = i18n.DEFAULT) -> str:
+    return i18n.t(lang, METHOD_KEYS.get(key, "pm_other"))
 
 
 def _today() -> str:
@@ -53,67 +52,64 @@ def coins_for(amount: int) -> int:
 
 
 # ---------------------------------------------------------------------------
-# EKRANLAR
+# ANA EKRAN
 # ---------------------------------------------------------------------------
 
 def panel_text(user_id: int) -> str:
     _reset_if_new_day(user_id)
     user = db.get_user(user_id)
+    lang = i18n.lang_of(user_id)
     kalan = max(0, config.MIN_WITHDRAW - user["tmt"])
+    durum = i18n.t(lang, "m_left", v=money(kalan)) if kalan else i18n.t(lang, "m_ready")
     return (
-        "💵 <b>GERÇEK PARA</b>\n\n"
-        f"💰 Paran: <b>{money(user['tmt'])}</b>\n"
-        f"🪙 Coinin: <b>{ui.fmt(user['coins'])}</b>\n\n"
-        f"📅 Bugün çevirebileceğin: <b>{money(left_today(user))}</b>\n"
-        f"🎯 Para çekmek için gereken: <b>{money(config.MIN_WITHDRAW)}</b>"
-        + (f" (daha {money(kalan)} lazım)" if kalan else " ✅ hazır!") + "\n\n"
-        "<b>Nasıl çalışır?</b>\n"
-        "1️⃣ Oyun oynarsın, coin toplarsın\n"
-        f"2️⃣ Coini paraya çevirirsin ({ui.fmt(config.COINS_PER_MONEY)} coin = 1.00 {config.MONEY_NAME})\n"
-        f"3️⃣ Günde en fazla {money(config.DAILY_MONEY_CAP)} çevirebilirsin\n"
-        f"4️⃣ {money(config.MIN_WITHDRAW)} olunca çekim istersin, ben elden öderim\n\n"
-        f"<i>Günlük limit yüzünden {money(config.MIN_WITHDRAW)} en erken 8 günde dolar. "
-        "Yani her gün gelip oynaman lazım 😊</i>"
+        f"{i18n.t(lang, 'm_title')}\n{ui.LINE}\n"
+        f"<blockquote>{i18n.t(lang, 'm_yours')}: <b>{money(user['tmt'])}</b>\n"
+        f"{i18n.t(lang, 'm_coins')}: <b>{ui.fmt(user['coins'])}</b></blockquote>\n"
+        f"{i18n.t(lang, 'm_today')}: <b>{money(left_today(user))}</b>\n"
+        f"{i18n.t(lang, 'm_need')}: <b>{money(config.MIN_WITHDRAW)}</b> ({durum})\n\n"
+        + i18n.t(lang, "m_how", coins=ui.fmt(config.COINS_PER_MONEY), cur=config.MONEY_NAME,
+                 cap=money(config.DAILY_MONEY_CAP), min=money(config.MIN_WITHDRAW))
     )
 
 
 def panel_kb(user_id: int):
     user = db.get_user(user_id)
+    lang = i18n.lang_of(user_id)
     rows = []
     for amount in (10, 25, 50):
         if amount <= left_today(user):
-            rows.append([(f"🔁 {ui.fmt(coins_for(amount))} coin ➜ {money(amount)}", f"cash:ex:{amount}")])
+            rows.append([(i18n.t(lang, "m_conv", coins=ui.fmt(coins_for(amount)),
+                                 money=money(amount)), f"cash:ex:{amount}")])
     if left_today(user) > 0:
-        rows.append([("⚡ Bugünlük limiti doldur", "cash:exmax")])
+        rows.append([(i18n.t(lang, "m_max"), "cash:exmax")])
     else:
-        rows.append([("✅ Bugünlük limit doldu", "cash:none")])
-    rows.append([("💸 Para Çek", "cash:wd"), ("📜 Geçmiş", "cash:hist")])
-    rows.append([("🎮 Oyunlar", "g:menu"), ("🏠 Menü", "m:main")])
+        rows.append([(i18n.t(lang, "m_full"), "cash:none")])
+    rows.append([(i18n.t(lang, "m_wd"), "cash:wd"), (i18n.t(lang, "m_hist"), "cash:hist")])
+    rows.append([(i18n.t(lang, "b_play"), "g:menu"), (i18n.t(lang, "b_home"), "m:main")])
     return ui.kb(rows)
 
 
 def exchange(user_id: int, amount: int) -> str:
-    """Coin -> para çevirir. amount kuruş cinsindendir."""
+    """Coin -> para çevirir (amount kuruş cinsinden)."""
     _reset_if_new_day(user_id)
     user = db.get_user(user_id)
+    lang = i18n.lang_of(user_id)
     if amount <= 0:
-        return "Çevrilecek miktar yok."
+        return i18n.t(lang, "m_no_coins")
     limit = left_today(user)
     if limit <= 0:
-        return f"Bugünlük limitin doldu. Yarın devam! (günlük {money(config.DAILY_MONEY_CAP)})"
-    if amount > limit:
-        amount = limit
+        return i18n.t(lang, "m_cap_hit")
+    amount = min(amount, limit)
     need = coins_for(amount)
     if user["coins"] < need:
-        return (f"Yeterli coinin yok.\nGereken: {ui.fmt(need)} 🪙\n"
-                f"Sende: {ui.fmt(user['coins'])} 🪙")
+        return i18n.t(lang, "m_no_coins")
     if not economy.take_coins(user_id, need, "paraya çevirme"):
-        return "İşlem olmadı, tekrar dene."
+        return i18n.t(lang, "m_no_coins")
     db.bump(user_id, tmt=amount, tmt_today=amount)
     db.upd(user_id, tmt_day=_today())
     user = db.get_user(user_id)
-    return (f"✅ {ui.fmt(need)} coin ➜ <b>{money(amount)}</b>\n"
-            f"💰 Toplam paran: <b>{money(user['tmt'])}</b>")
+    return i18n.t(lang, "m_done", coins=ui.fmt(need), money=money(amount),
+                  total=money(user["tmt"]))
 
 
 # ---------------------------------------------------------------------------
@@ -121,58 +117,53 @@ def exchange(user_id: int, amount: int) -> str:
 # ---------------------------------------------------------------------------
 
 def can_withdraw(user) -> tuple[bool, str]:
+    lang = i18n.lang_of(user["user_id"])
     if user["tmt"] < config.MIN_WITHDRAW:
-        return False, (f"En az {money(config.MIN_WITHDRAW)} biriktirmen lazım.\n"
-                       f"Şu an: {money(user['tmt'])}")
+        return False, f"{money(user['tmt'])} / {money(config.MIN_WITHDRAW)}"
     if user["level"] < config.WITHDRAW_MIN_LEVEL:
-        return False, f"Seviye {config.WITHDRAW_MIN_LEVEL} olman lazım (şu an {user['level']})."
+        return False, f"🎚 {user['level']} / {config.WITHDRAW_MIN_LEVEL}"
     if days_old(user) < config.WITHDRAW_MIN_DAYS:
-        return False, (f"Hesabın en az {config.WITHDRAW_MIN_DAYS} günlük olmalı "
-                       f"(şu an {days_old(user)} gün).")
+        return False, f"📅 {days_old(user)} / {config.WITHDRAW_MIN_DAYS}"
     pending = db.scalar(
         "SELECT COUNT(*) FROM withdrawals WHERE user_id=? AND state='bekliyor'", (user["user_id"],))
     if pending:
-        return False, "Zaten bekleyen bir çekim talebin var. Önce o ödensin."
+        return False, "⏳ #" + str(db.scalar(
+            "SELECT id FROM withdrawals WHERE user_id=? AND state='bekliyor' ORDER BY id DESC",
+            (user["user_id"],)))
     return True, ""
 
 
 def create_request(user_id: int, amount: int, method: str, details: str) -> str:
     user = db.get_user(user_id)
+    lang = i18n.lang_of(user_id)
     ok, msg = can_withdraw(user)
     if not ok:
-        return "❌ " + msg
+        return f"{i18n.t(lang, 'm_not_yet')} {msg}"
     amount = min(amount, user["tmt"])
     if amount < config.MIN_WITHDRAW:
-        return f"❌ En az {money(config.MIN_WITHDRAW)} çekebilirsin."
+        return f"{i18n.t(lang, 'm_not_yet')} {money(config.MIN_WITHDRAW)}"
     db.bump(user_id, tmt=-amount)
     cur = db.run(
         "INSERT INTO withdrawals (user_id, amount, method, details, created_ts) VALUES (?,?,?,?,?)",
         (user_id, amount, method, details[:120], ui.now()))
     db.log_tx(user_id, 0, f"çekim talebi #{cur.lastrowid}")
-    return (
-        f"✅ <b>TALEBİN ALINDI!</b>\n\n"
-        f"💵 Tutar: <b>{money(amount)}</b>\n"
-        f"📮 Yöntem: {METHODS.get(method, method)}\n"
-        f"📝 Bilgi: {ui.esc(details[:120])}\n"
-        f"🔖 Talep no: #{cur.lastrowid}\n\n"
-        "Yönetici en kısa sürede ödemeyi yapacak. Ödeme yapılınca sana mesaj gelir."
-    )
+    return i18n.t(lang, "m_req_ok", amount=money(amount),
+                  method=method_name(method, lang), id=cur.lastrowid)
 
 
 def history_text(user_id: int) -> str:
     rows = db.all_("SELECT * FROM withdrawals WHERE user_id=? ORDER BY id DESC LIMIT 10", (user_id,))
     user = db.get_user(user_id)
-    lines = ["📜 <b>ÇEKİM GEÇMİŞİN</b>\n",
-             f"💰 Şu anki paran: <b>{money(user['tmt'])}</b>",
-             f"✅ Bugüne kadar ödenen: <b>{money(user['tmt_paid'])}</b>\n"]
+    lang = i18n.lang_of(user_id)
+    lines = [i18n.t(lang, "m_hist_title"), ui.LINE,
+             f"<blockquote>{i18n.t(lang, 'm_yours')}: <b>{money(user['tmt'])}</b>\n"
+             f"{i18n.t(lang, 'm_paid_total')}: <b>{money(user['tmt_paid'])}</b></blockquote>"]
     if not rows:
-        lines.append("Henüz çekim talebin yok.")
+        lines.append(i18n.t(lang, "m_hist_empty"))
     for row in rows:
         icon = {"bekliyor": "⏳", "odendi": "✅", "reddedildi": "❌"}.get(row["state"], "•")
         date = dt.datetime.fromtimestamp(row["created_ts"]).strftime("%d.%m.%Y")
-        lines.append(f"{icon} #{row['id']} — {money(row['amount'])} • {date} • {row['state']}")
-        if row["note"]:
-            lines.append(f"    <i>{ui.esc(row['note'])}</i>")
+        lines.append(f"{icon} #{row['id']} — <b>{money(row['amount'])}</b> • {date}")
     return "\n".join(lines)
 
 
@@ -185,75 +176,83 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     parts = query.data.split(":")
     action = parts[1] if len(parts) > 1 else "menu"
     user_id = update.effective_user.id
+    lang = i18n.lang_of(user_id)
     if not ui.is_private(update):
-        await query.answer("Bu bölüm sadece bota özelden yazınca açılır.", show_alert=True)
+        await query.answer(i18n.t(lang, "only_private"), show_alert=True)
         return
     await query.answer()
     user = db.get_user(user_id)
 
     if action == "menu":
         await ui.safe_edit(query, panel_text(user_id), panel_kb(user_id))
+
     elif action == "none":
-        await query.answer("Bugünlük limit doldu, yarın tekrar gel 🙂", show_alert=True)
+        await query.answer(i18n.t(lang, "m_cap_hit"), show_alert=True)
+
     elif action == "ex":
         await query.answer(_plain(exchange(user_id, int(parts[2]))), show_alert=True)
         await ui.safe_edit(query, panel_text(user_id), panel_kb(user_id))
+
     elif action == "exmax":
         _reset_if_new_day(user_id)
         user = db.get_user(user_id)
         possible = min(left_today(user), user["coins"] * 100 // config.COINS_PER_MONEY)
         if possible <= 0:
-            await query.answer("Çevirecek kadar coinin yok. Biraz daha oyna! 🎮", show_alert=True)
+            await query.answer(i18n.t(lang, "m_no_coins"), show_alert=True)
         else:
             await query.answer(_plain(exchange(user_id, possible)), show_alert=True)
         await ui.safe_edit(query, panel_text(user_id), panel_kb(user_id))
+
     elif action == "wd":
         ok, msg = can_withdraw(user)
         if not ok:
             await ui.safe_edit(query, (
-                f"💸 <b>PARA ÇEKME</b>\n\n❌ Henüz olmaz:\n{msg}\n\n"
-                f"<b>Şartlar</b>\n"
-                f"• En az {money(config.MIN_WITHDRAW)} biriktir\n"
-                f"• Seviye {config.WITHDRAW_MIN_LEVEL} ol\n"
-                f"• Hesabın {config.WITHDRAW_MIN_DAYS} günlük olsun\n\n"
-                "Oyna, kazan, yarın tekrar gel 🙂"
-            ), ui.kb([[("💵 Para Ekranı", "cash:menu")], [("🎮 Oyunlar", "g:menu")]]))
+                f"{i18n.t(lang, 'm_wd')}\n{ui.LINE}\n"
+                f"{i18n.t(lang, 'm_not_yet')} <b>{msg}</b>\n\n"
+                + i18n.t(lang, "m_rules", min=money(config.MIN_WITHDRAW),
+                         lvl=config.WITHDRAW_MIN_LEVEL, days=config.WITHDRAW_MIN_DAYS)
+            ), ui.kb([[(i18n.t(lang, "b_money"), "cash:menu")],
+                      [(i18n.t(lang, "b_play"), "g:menu")]]))
             return
         rows = [[(f"💸 {money(config.MIN_WITHDRAW)}", f"cash:amt:{config.MIN_WITHDRAW}")]]
         if user["tmt"] >= 1000:
-            rows.append([("💸 10.00 " + config.MONEY_NAME, "cash:amt:1000")])
-        rows.append([(f"💸 Hepsi ({money(user['tmt'])})", f"cash:amt:{user['tmt']}")])
-        rows.append([("⬅️ Geri", "cash:menu")])
+            rows.append([("💸 " + money(1000), "cash:amt:1000")])
+        rows.append([(f"{i18n.t(lang, 'm_all')} ({money(user['tmt'])})", f"cash:amt:{user['tmt']}")])
+        rows.append([(i18n.t(lang, "b_back"), "cash:menu")])
         await ui.safe_edit(query, (
-            f"💸 <b>PARA ÇEKME</b>\n\n💰 Paran: <b>{money(user['tmt'])}</b>\n\n"
-            "Ne kadar çekmek istersin?"
+            f"{i18n.t(lang, 'm_wd')}\n{ui.LINE}\n"
+            f"<blockquote>{i18n.t(lang, 'm_yours')}: <b>{money(user['tmt'])}</b></blockquote>\n"
+            f"{i18n.t(lang, 'm_ask_amount')}"
         ), ui.kb(rows))
+
     elif action == "amt":
         amount = int(parts[2])
-        rows = [[(label, f"cash:mth:{amount}:{key}")] for key, label in METHODS.items()]
-        rows.append([("⬅️ Geri", "cash:wd")])
+        rows = [[(i18n.t(lang, key), f"cash:mth:{amount}:{code}")]
+                for code, key in METHOD_KEYS.items()]
+        rows.append([(i18n.t(lang, "b_back"), "cash:wd")])
         await ui.safe_edit(query, (
-            f"💸 <b>PARA ÇEKME</b>\n\nTutar: <b>{money(amount)}</b>\n\n"
-            "Parayı nasıl almak istersin?"
+            f"{i18n.t(lang, 'm_wd')}\n{ui.LINE}\n"
+            f"<blockquote><b>{money(amount)}</b></blockquote>\n"
+            f"{i18n.t(lang, 'm_ask_method')}"
         ), ui.kb(rows))
+
     elif action == "mth":
         amount, method = int(parts[2]), parts[3]
         context.user_data["await"] = {"kind": "cash_details", "amount": amount, "method": method}
-        ornek = {"karta": "kart numaran", "telefon": "telefon numaran",
-                 "diger": "ödeme bilgin"}.get(method, "bilgin")
-        await ui.safe_edit(query, (
-            f"💸 <b>SON ADIM</b>\n\nTutar: <b>{money(amount)}</b>\n"
-            f"Yöntem: {METHODS[method]}\n\n"
-            f"Şimdi <b>{ornek}</b> yaz ve gönder.\n"
-            "<i>Vazgeçmek için aşağıdaki butona bas.</i>"
-        ), ui.kb([[("⬅️ Vazgeç", "cash:menu")]]))
+        await ui.safe_edit(query, i18n.t(
+            lang, "m_last", amount=money(amount), method=method_name(method, lang),
+            what=i18n.t(lang, ASK_KEYS.get(method, "pm_other_ask"))
+        ), ui.kb([[(i18n.t(lang, "m_cancel"), "cash:menu")]]))
+
     elif action == "hist":
         await ui.safe_edit(query, history_text(user_id), ui.kb([
-            [("💵 Para Ekranı", "cash:menu")], [("🏠 Menü", "m:main")]]))
+            [(i18n.t(lang, "b_money"), "cash:menu")], [(i18n.t(lang, "b_home"), "m:main")]]))
 
 
 def _plain(text: str) -> str:
-    return text.replace("<b>", "").replace("</b>", "")
+    for tag in ("<b>", "</b>", "<blockquote>", "</blockquote>", "<i>", "</i>"):
+        text = text.replace(tag, "")
+    return text
 
 
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
@@ -262,37 +261,41 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
         return False
     context.user_data.pop("await", None)
     user_id = update.effective_user.id
+    lang = i18n.lang_of(user_id)
     details = (update.message.text or "").strip()
     if len(details) < 3:
-        await ui.send(update, "Bilgi çok kısa görünüyor, tekrar dene.", ui.kb([[("💸 Para Çek", "cash:wd")]]))
+        await ui.send(update, "❌", ui.kb([[(i18n.t(lang, "m_wd"), "cash:wd")]]))
         return True
     result = create_request(user_id, pending["amount"], pending["method"], details)
-    await ui.send(update, result, ui.kb([[("💵 Para Ekranı", "cash:menu")], [("🏠 Menü", "m:main")]]))
+    await ui.send(update, result, ui.kb([
+        [(i18n.t(lang, "b_money"), "cash:menu")], [(i18n.t(lang, "b_home"), "m:main")]]))
 
-    # yöneticilere haber ver
+    # yöneticilere haber ver (yönetici yazıları Türkçe kalır)
     row = db.one("SELECT * FROM withdrawals WHERE user_id=? ORDER BY id DESC LIMIT 1", (user_id,))
     if row and row["state"] == "bekliyor":
         user = db.get_user(user_id)
         text = (
-            f"💸 <b>YENİ ÇEKİM TALEBİ #{row['id']}</b>\n\n"
+            f"💸 <b>YENİ ÇEKİM TALEBİ #{row['id']}</b>\n{ui.LINE}\n"
             f"👤 {ui.mention(user)} (<code>{user_id}</code>)\n"
             f"💵 Tutar: <b>{money(row['amount'])}</b>\n"
-            f"📮 {METHODS.get(row['method'], row['method'])}\n"
+            f"📮 {method_name(row['method'], 'tr')}\n"
             f"📝 <code>{ui.esc(row['details'])}</code>\n\n"
-            f"🎚 Seviye {user['level']} • {days_old(user)} günlük hesap\n"
-            f"🎮 {ui.fmt(user['games'])} oyun • bugüne kadar ödenen {money(user['tmt_paid'])}"
+            f"<blockquote>🎚 Seviye {user['level']} • {days_old(user)} günlük hesap\n"
+            f"🎮 {ui.fmt(user['games'])} oyun • toplam ödenen {money(user['tmt_paid'])}</blockquote>"
         )
         kb = ui.kb([[("✅ Ödedim", f"ad:pay:{row['id']}"), ("❌ Reddet", f"ad:rej:{row['id']}")]])
         for admin_id in config.ADMIN_IDS:
             try:
-                await context.bot.send_message(admin_id, text, parse_mode=ParseMode.HTML, reply_markup=kb)
+                await context.bot.send_message(admin_id, text, parse_mode=ParseMode.HTML,
+                                               reply_markup=kb)
             except Exception:
                 pass
     return True
 
 
 async def cmd_cash(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = update.effective_user.id
     if not ui.is_private(update):
-        await ui.send(update, "💵 Para ekranı özelde açılır.", ui.pm_link())
+        await ui.send(update, i18n.t(i18n.lang_of(user_id), "only_private"), ui.pm_link())
         return
-    await ui.send(update, panel_text(update.effective_user.id), panel_kb(update.effective_user.id))
+    await ui.screen(update, "cash", panel_text(user_id), panel_kb(user_id))

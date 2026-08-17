@@ -12,6 +12,7 @@ import config
 import db
 import economy
 import events
+import i18n
 import ui
 
 log = logging.getLogger(__name__)
@@ -66,7 +67,7 @@ def withdrawals_text() -> str:
         lines.append(
             f"#{row['id']} — <b>{cash.money(row['amount'])}</b>\n"
             f"    👤 {ui.name_of(user)} (<code>{row['user_id']}</code>) • Sv.{user['level'] if user else '?'}\n"
-            f"    {cash.METHODS.get(row['method'], row['method'])}: <code>{ui.esc(row['details'])}</code>")
+            f"    {cash.method_name(row['method'], 'tr')}: <code>{ui.esc(row['details'])}</code>")
     return "\n".join(lines)
 
 
@@ -137,19 +138,15 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         if action == "pay":
             db.run("UPDATE withdrawals SET state='odendi', done_ts=? WHERE id=?", (ui.now(), req_id))
             db.bump(row["user_id"], tmt_paid=row["amount"])
-            msg = (f"✅ <b>PARAN ÖDENDİ!</b>\n\n"
-                   f"💵 {cash.money(row['amount'])} gönderildi.\n"
-                   f"🔖 Talep no: #{req_id}\n\n"
-                   "Oynamaya devam et, yeni para biriktir! 🎮")
+            msg = i18n.t(i18n.lang_of(row["user_id"]), "m_paid",
+                         amount=cash.money(row["amount"]), id=req_id)
             await query.answer(f"#{req_id} ödendi olarak işaretlendi.")
         else:
             db.run("UPDATE withdrawals SET state='reddedildi', done_ts=?, "
                    "note='yönetici reddetti' WHERE id=?", (ui.now(), req_id))
             db.bump(row["user_id"], tmt=row["amount"])
-            msg = (f"❌ <b>Çekim talebin reddedildi.</b>\n\n"
-                   f"💵 {cash.money(row['amount'])} hesabına geri yüklendi.\n"
-                   f"🔖 Talep no: #{req_id}\n\n"
-                   "Sebebi için yöneticiye yazabilirsin.")
+            msg = i18n.t(i18n.lang_of(row["user_id"]), "m_rejected",
+                         amount=cash.money(row["amount"]), id=req_id)
             await query.answer(f"#{req_id} reddedildi, para iade edildi.")
         try:
             await context.bot.send_message(row["user_id"], msg, parse_mode=ParseMode.HTML)

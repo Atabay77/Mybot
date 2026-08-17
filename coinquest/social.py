@@ -12,6 +12,7 @@ import config
 import db
 import economy
 import events
+import i18n
 import items
 import ui
 
@@ -93,35 +94,33 @@ def profile_kb():
 
 def daily(user_id: int) -> str:
     user = db.get_user(user_id)
+    lang = i18n.lang_of(user_id)
     now = ui.now()
     if now - user["last_daily"] < 20 * 3600:
         left = user["last_daily"] + 20 * 3600 - now
-        return f"⏳ Günlük ödülünü aldın. Yenisi için: <b>{ui.dur(left)}</b>"
+        return i18n.t(lang, "d_wait", time=ui.dur(left))
     streak = user["streak"] + 1 if now - user["last_daily"] < 48 * 3600 else 1
     reward = config.DAILY_BASE + config.DAILY_STREAK_BONUS * min(streak, 30) + user["level"] * 200
     reward = economy.payout(user, reward)
-    gems = 0
-    extra = ""
-    if streak % 7 == 0:
-        gems = 5
-        extra = f"\n🎉 <b>{streak}. gün bonusu:</b> +5 💎"
+    gems = 5 if streak % 7 == 0 else 0
     db.upd(user_id, last_daily=now, streak=streak)
     economy.add_coins(user_id, reward, "günlük ödül")
     if gems:
         economy.add_gems(user_id, gems, "günlük seri bonusu")
     economy.add_xp(user_id, 50)
     economy.add_energy(user_id, 10)
-    # rastgele sürpriz
     surprise = ""
     if economy.roll(0.25):
         drop = random.choice(["c_energy", "c_clover", "c_potion", "c_scroll"])
         db.inv_add(user_id, drop, 1, stackable=True)
-        surprise = f"\n🎁 Sürpriz: {items.label(drop)}"
+        surprise = f"\n🎁 {items.label(drop)}"
     return (
-        f"🎁 <b>GÜNLÜK ÖDÜL</b>\n\n"
-        f"💰 +{ui.fmt(reward)} 🪙\n⚡ +10 enerji  ✨ +50 XP\n"
-        f"🔥 Seri: <b>{streak}</b> gün{extra}{surprise}\n\n"
-        f"<i>Her gün gel, seri arttıkça ödül büyür (30 güne kadar).</i>"
+        f"{i18n.t(lang, 'd_title')}\n{ui.LINE}\n"
+        f"<blockquote>💰 <b>+{ui.fmt(reward)}</b> 🪙\n"
+        f"⚡ +10   ✨ +50 XP"
+        + (f"\n💎 <b>+{gems}</b>" if gems else "") + f"{surprise}</blockquote>\n"
+        f"{i18n.t(lang, 'd_streak', n=streak)}\n\n"
+        f"{i18n.t(lang, 'd_note')}"
     )
 
 
@@ -587,8 +586,10 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     elif action == "ref":
         await ui.safe_edit(query, ref_text(user_id), ui.back_kb("m:main"))
     elif action == "help":
-        await ui.safe_edit(query, HELP_TEXT, ui.kb([
-            [("💸 Kazanç Yolları", "s:earn")], [("🏠 Menü", "m:main")]]))
+        lang = i18n.lang_of(user_id)
+        await ui.safe_edit(query, help_text(lang), ui.kb([
+            [(i18n.t(lang, "b_play"), "g:menu"), (i18n.t(lang, "b_money"), "cash:menu")],
+            [(i18n.t(lang, "b_home"), "m:main")]]))
     elif action == "earn":
         await ui.safe_edit(query, EARN_TEXT, ui.kb([
             [("ℹ️ Yardım", "s:help")], [("🏠 Menü", "m:main")]]))
@@ -649,7 +650,9 @@ async def cmd_balance(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 
 async def cmd_daily(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await ui.send(update, daily(update.effective_user.id), ui.kb([[("🎮 Oyunlar", "g:menu")]]))
+    lang = i18n.lang_of(update.effective_user.id)
+    await ui.screen(update, "daily", daily(update.effective_user.id), ui.kb([
+        [(i18n.t(lang, "b_play"), "g:menu"), (i18n.t(lang, "b_money"), "cash:menu")]]))
 
 
 async def cmd_hourly(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -707,5 +710,12 @@ async def cmd_ref(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await ui.send(update, ref_text(update.effective_user.id))
 
 
+def help_text(lang: str) -> str:
+    return f"{i18n.t(lang, 'h_title')}\n{ui.LINE}\n{i18n.t(lang, 'h_body')}"
+
+
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await ui.send(update, HELP_TEXT, ui.kb([[("💸 Kazanç Yolları", "s:earn"), ("🏠 Menü", "m:main")]]))
+    lang = i18n.lang_of(update.effective_user.id)
+    await ui.screen(update, "help", help_text(lang), ui.kb([
+        [(i18n.t(lang, "b_play"), "g:menu"), (i18n.t(lang, "b_money"), "cash:menu")],
+        [(i18n.t(lang, "b_home"), "m:main")]]))

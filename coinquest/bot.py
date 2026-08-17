@@ -18,8 +18,10 @@ import db
 import economy
 import events
 import games
+import i18n
 import items
 import market
+import media
 import party
 import pvp
 import social
@@ -38,21 +40,20 @@ log = logging.getLogger("coinquest")
 # ---------------------------------------------------------------------------
 
 def main_menu_text(user) -> str:
+    lang = i18n.lang_of(user["user_id"])
+    extra = ""
     boss = events.active_boss()
-    boss_line = ""
     if boss:
-        boss_line = (f"\n🐉 <b>{ui.esc(boss['name'])}</b> saldırıda! "
-                     f"({ui.fmt(boss['hp'])} HP kaldı) → /boss\n")
+        extra += "\n" + i18n.t(lang, "menu_boss", name=ui.esc(boss["name"]))
     ready = sum(1 for q in events.daily_quests(user["user_id"])
                 if not q["claimed"] and q["progress"] >= q["target"])
-    quest_line = f"\n🎁 <b>{ready} görevin bitti, ödülünü al!</b>\n" if ready else ""
+    if ready:
+        extra += "\n" + i18n.t(lang, "menu_quest", n=ready)
     return (
-        f"🏰 <b>COINQUEST</b>\n"
-        f"Merhaba <b>{ui.name_of(user)}</b> 👋\n\n"
-        f"{ui.header(user)}\n"
-        f"💵 Gerçek para: <b>{cash.money(user['tmt'])}</b>\n"
-        f"{boss_line}{quest_line}\n"
-        "Ne yapmak istersin? 👇"
+        f"🏰 <b>COINQUEST</b>\n{ui.LINE}\n"
+        f"{i18n.t(lang, 'menu_hi', name=ui.name_of(user))}\n"
+        f"{ui.header(user, with_money=True)}"
+        f"{extra}\n\n{i18n.t(lang, 'menu_ask')} 👇"
     )
 
 
@@ -80,31 +81,23 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             except Exception:
                 pass
         user = db.get_user(tg_user.id)
-        welcome = (
-            "🏰 <b>HOŞ GELDİN!</b>\n\n"
-            f"Sana hediye: <b>{ui.fmt(config.START_COINS)}</b> 🪙 coin ve "
-            f"<b>{config.START_GEMS}</b> 💎 elmas.\n\n"
-            "<b>Burada ne yapılır?</b>\n"
-            "🎮 Oyun oynarsın, coin kazanırsın\n"
-            "⚔️ Arkadaşınla yarışırsın, onun coinini alırsın\n"
-            "🏪 Kazandığınla eşya alırsın, güçlenirsin\n"
-            f"💵 Coini <b>gerçek paraya</b> çevirirsin ({cash.money(config.MIN_WITHDRAW)} olunca çekersin)\n\n"
-            "👇 Aşağıdaki butonları kullan, hiçbir şey yazmana gerek yok."
-        )
-        await update.effective_chat.send_message(welcome, parse_mode=ParseMode.HTML,
-                                                 reply_markup=ui.bottom_kb())
-        await ui.send(update, main_menu_text(user), ui.main_menu_kb())
+        # yeni oyuncu: önce dil seçsin, gerisi dil seçilince gelir
+        await update.effective_chat.send_message(
+            "🌐 <b>Dil / Язык / Dil</b>\n\nSaýla — Выбери — Seç 👇",
+            parse_mode=ParseMode.HTML, reply_markup=ui.lang_kb())
         return
 
     if not ui.is_private(update):
         await ui.send(update, (
-            "🏰 <b>CoinQuest</b> burada da hazır!\n\n"
-            "Grupta: /duello (altınla 1v1), /parti (bedava grup oyunları), /boss, /siralama\n"
-            "Özelde: tüm oyun salonu, market, envanter ve daha fazlası."
+            "🏰 <b>CoinQuest</b>\n\n"
+            "⚔️ /duello — teňňe üçin ýaryş / дуэль на монеты\n"
+            "🎉 /parti — mugt topar oýunlary / игры для группы\n"
+            "🐉 /boss — aždarha / босс"
         ), ui.pm_link())
         return
-    await update.effective_chat.send_message("👇 Butonlar hazır.", reply_markup=ui.bottom_kb())
-    await ui.send(update, main_menu_text(user), ui.main_menu_kb())
+    lang = i18n.lang_of(tg_user.id)
+    await update.effective_chat.send_message(i18n.t(lang, "ready"), reply_markup=ui.bottom_kb(lang))
+    await ui.screen(update, "menu", main_menu_text(user), ui.main_menu_kb(lang))
 
 
 async def cmd_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -112,7 +105,8 @@ async def cmd_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await ui.send(update, "Menü bana özelden yazınca açılır 🙂", ui.pm_link())
         return
     user = db.get_user(update.effective_user.id)
-    await ui.send(update, main_menu_text(user), ui.main_menu_kb())
+    await ui.screen(update, "menu", main_menu_text(user),
+                    ui.main_menu_kb(i18n.lang_of(user["user_id"])))
 
 
 async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -125,13 +119,41 @@ async def on_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     query = update.callback_query
     await query.answer()
     parts = query.data.split(":")
-    if parts[1] == "main":
-        if not ui.is_private(update):
-            await query.answer("Menü özel sohbette açılır.", show_alert=True)
-            return
+    action = parts[1]
+    user_id = update.effective_user.id
+    lang = i18n.lang_of(user_id)
+
+    if action == "setlang":
+        i18n.set_lang(user_id, parts[2])
+        lang = parts[2]
+        user = db.get_user(user_id)
+        await query.answer(i18n.t(lang, "lang_ok"))
+        await context.bot.send_message(
+            query.message.chat_id, i18n.t(lang, "ready"),
+            reply_markup=ui.bottom_kb(lang))
+        if not user["last_daily"] and user["games"] == 0:
+            await context.bot.send_message(
+                query.message.chat_id,
+                i18n.t(lang, "welcome", coins=ui.fmt(config.START_COINS), gems=config.START_GEMS),
+                parse_mode=ParseMode.HTML)
+        await ui.safe_edit(query, main_menu_text(user), ui.main_menu_kb(lang))
+        return
+
+    if not ui.is_private(update):
+        await query.answer(i18n.t(lang, "only_private"), show_alert=True)
+        return
+
+    if action == "main":
         games.clear_sessions(context)
-        user = db.get_user(update.effective_user.id)
-        await ui.safe_edit(query, main_menu_text(user), ui.main_menu_kb())
+        user = db.get_user(user_id)
+        await ui.safe_edit(query, main_menu_text(user), ui.main_menu_kb(lang))
+    elif action == "more":
+        user = db.get_user(user_id)
+        await ui.safe_edit(query, (
+            f"{i18n.t(lang, 'more_title')}\n{ui.LINE}\n{ui.header(user, with_money=True)}"
+        ), ui.more_menu_kb(lang))
+    elif action == "lang":
+        await ui.safe_edit(query, i18n.t(lang, "lang_title"), ui.lang_kb())
 
 
 async def on_custom_bet(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -157,28 +179,29 @@ async def on_bottom_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     """Ekranın altındaki sabit butonlara basıldığında ilgili ekranı açar."""
     text = (update.message.text or "").strip()
     user_id = update.effective_user.id
-    if text not in BOTTOM_ACTIONS:
+    key = i18n.all_button_labels().get(text)
+    if key is None:
         return False
     context.user_data.pop("await", None)      # yarım kalan yazma işlemi varsa iptal
     games.clear_sessions(context)
-    await BOTTOM_ACTIONS[text](update, context)
+    await BOTTOM_ACTIONS[key](update, context)
     return True
 
 
 async def _open_menu(update, context):
     user = db.get_user(update.effective_user.id)
-    await ui.send(update, main_menu_text(user), ui.main_menu_kb())
+    lang = i18n.lang_of(user["user_id"])
+    await ui.screen(update, "menu", main_menu_text(user), ui.main_menu_kb(lang))
 
 
 BOTTOM_ACTIONS = {
-    "🎮 Oyunlar": lambda u, c: games.cmd_games(u, c),
-    "💰 Cüzdanım": lambda u, c: social.cmd_profile(u, c),
-    "🎁 Günlük Hediye": lambda u, c: social.cmd_daily(u, c),
-    "💵 Para Çek": lambda u, c: cash.cmd_cash(u, c),
-    "🏪 Market": lambda u, c: market.cmd_market(u, c),
-    "🎒 Eşyalarım": lambda u, c: market.cmd_inventory(u, c),
-    "👥 Arkadaş Çağır": lambda u, c: social.cmd_ref(u, c),
-    "📖 Menü": _open_menu,
+    "b_play":    lambda u, c: games.cmd_games(u, c),
+    "b_money":   lambda u, c: cash.cmd_cash(u, c),
+    "b_gift":    lambda u, c: social.cmd_daily(u, c),
+    "b_shop":    lambda u, c: market.cmd_market(u, c),
+    "b_items":   lambda u, c: market.cmd_inventory(u, c),
+    "b_friends": lambda u, c: social.cmd_ref(u, c),
+    "b_menu":    lambda u, c: _open_menu(u, c),
 }
 
 
@@ -333,7 +356,8 @@ def main() -> None:
         )
         sys.exit(1)
     db.init()
-    log.info("%d eşya yüklendi", len(items.ITEMS))
+    log.info("%d eşya, %d dil, resimler: %s", len(items.ITEMS), len(i18n.LANGS),
+             ", ".join(media.available()) or "yok")
     app = build_app()
     log.info("CoinQuest başlatılıyor...")
     app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)

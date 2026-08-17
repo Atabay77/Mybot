@@ -10,10 +10,13 @@ from telegram.error import BadRequest
 
 import config
 import economy
+import i18n
+import media
 
 E_COIN = "🪙"
 E_GEM = "💎"
 E_EN = "⚡"
+LINE = "━━━━━━━━━━━━━━"
 
 
 def fmt(n) -> str:
@@ -72,48 +75,76 @@ def kb(rows: Iterable[Iterable[tuple[str, str]]]) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(out)
 
 
-def main_menu_kb() -> InlineKeyboardMarkup:
+def main_menu_kb(lang: str = i18n.DEFAULT) -> InlineKeyboardMarkup:
+    """Sade ana menü: 6 büyük düğme. Gerisi 'Başgalary' içinde."""
     return kb([
-        [("🎮 Oyunlar", "g:menu"), ("💵 Para Çek", "cash:menu")],
-        [("⚔️ Düello", "pvp:menu"), ("💰 Cüzdanım", "s:profile")],
-        [("🏪 Market", "mk:menu"), ("🎒 Eşyalarım", "mk:inv")],
-        [("🛒 Pazar", "mk:bazaar"), ("🏭 İş Yerim", "mk:biz")],
-        [("🎁 Günlük Hediye", "s:daily"), ("🏦 Banka", "s:bank")],
-        [("🐉 Canavar", "ev:boss"), ("🎟 Çekiliş", "ev:lottery")],
-        [("📜 Görevler", "ev:quests"), ("🏆 Sıralama", "s:top")],
-        [("👥 Arkadaş Çağır", "s:ref"), ("❓ Nasıl Oynanır", "s:help")],
+        [(i18n.t(lang, "b_play"), "g:menu")],
+        [(i18n.t(lang, "b_money"), "cash:menu")],
+        [(i18n.t(lang, "b_gift"), "s:daily"), (i18n.t(lang, "b_shop"), "mk:menu")],
+        [(i18n.t(lang, "b_friends"), "s:ref"), (i18n.t(lang, "b_help"), "s:help")],
+        [(i18n.t(lang, "b_more"), "m:more")],
     ])
 
 
-# Ekranın altında sürekli duran butonlar — kullanıcı hiç komut yazmak zorunda kalmasın
-BOTTOM_BUTTONS = [
-    ["🎮 Oyunlar", "💰 Cüzdanım"],
-    ["🎁 Günlük Hediye", "💵 Para Çek"],
-    ["🏪 Market", "🎒 Eşyalarım"],
-    ["👥 Arkadaş Çağır", "📖 Menü"],
-]
+def more_menu_kb(lang: str = i18n.DEFAULT) -> InlineKeyboardMarkup:
+    return kb([
+        [(i18n.t(lang, "b_profile"), "s:profile"), (i18n.t(lang, "b_items"), "mk:inv")],
+        [(i18n.t(lang, "b_duel"), "pvp:menu"), (i18n.t(lang, "b_boss"), "ev:boss")],
+        [(i18n.t(lang, "b_bank"), "s:bank"), (i18n.t(lang, "b_biz"), "mk:biz")],
+        [(i18n.t(lang, "b_bazaar"), "mk:bazaar"), (i18n.t(lang, "b_clan"), "s:clan")],
+        [(i18n.t(lang, "b_quests"), "ev:quests"), (i18n.t(lang, "b_lottery"), "ev:lottery")],
+        [(i18n.t(lang, "b_top"), "s:top"), (i18n.t(lang, "b_lang"), "m:lang")],
+        [(i18n.t(lang, "b_home"), "m:main")],
+    ])
 
 
-def bottom_kb() -> ReplyKeyboardMarkup:
-    return ReplyKeyboardMarkup(BOTTOM_BUTTONS, resize_keyboard=True, is_persistent=True)
+def lang_kb() -> InlineKeyboardMarkup:
+    rows = [[(label, f"m:setlang:{code}")] for code, label in i18n.LANGS.items()]
+    return kb(rows)
 
 
-def back_kb(target: str = "m:main", label: str = "⬅️ Geri") -> InlineKeyboardMarkup:
-    return kb([[(label, target)]])
+def bottom_kb(lang: str = i18n.DEFAULT) -> ReplyKeyboardMarkup:
+    """Ekranın altında sürekli duran butonlar — kimse komut yazmasın."""
+    rows = [
+        [i18n.t(lang, "b_play"), i18n.t(lang, "b_money")],
+        [i18n.t(lang, "b_gift"), i18n.t(lang, "b_shop")],
+        [i18n.t(lang, "b_items"), i18n.t(lang, "b_friends")],
+        [i18n.t(lang, "b_menu")],
+    ]
+    return ReplyKeyboardMarkup(rows, resize_keyboard=True, is_persistent=True)
 
 
-def header(user) -> str:
+def back_kb(target: str = "m:main", label: str = None, lang: str = i18n.DEFAULT) -> InlineKeyboardMarkup:
+    return kb([[(label or i18n.t(lang, "b_back"), target)]])
+
+
+def money(value: int) -> str:
+    """500 -> '5.00 TMT'"""
+    return f"{value / 100:.2f} {config.MONEY_NAME}"
+
+
+def header(user, with_money: bool = False) -> str:
+    """Cüzdan satırı — alıntı kutusu içinde, her dilde aynı (emoji)."""
     en = economy.sync_energy(user["user_id"])
     mx = economy.max_energy(user["level"])
-    return (
-        f"{E_COIN} <b>{fmt(user['coins'])}</b>   {E_GEM} {fmt(user['gems'])}   "
-        f"{E_EN} {en}/{mx}   🎚 Sv.{user['level']}"
-    )
+    line = (f"{E_COIN} <b>{fmt(user['coins'])}</b>   {E_GEM} {fmt(user['gems'])}   "
+            f"{E_EN} {en}/{mx}   🎚 {user['level']}")
+    if with_money:
+        line += f"\n💵 <b>{money(user['tmt'])}</b>"
+    return f"<blockquote>{line}</blockquote>"
 
 
 async def safe_edit(query, text: str, reply_markup=None, parse_mode=ParseMode.HTML):
-    """'message is not modified' hatasını yutarak mesajı düzenler."""
+    """Mesajı düzenler. Mesajda fotoğraf varsa altyazıyı düzenler."""
+    has_photo = bool(getattr(query.message, "photo", None))
     try:
+        if has_photo:
+            if len(text) > 1000:                      # altyazı sınırı: yazıyı ayrı gönder
+                return await query.message.reply_text(
+                    text, reply_markup=reply_markup, parse_mode=parse_mode,
+                    disable_web_page_preview=True)
+            return await query.edit_message_caption(
+                caption=text, reply_markup=reply_markup, parse_mode=parse_mode)
         return await query.edit_message_text(
             text, reply_markup=reply_markup, parse_mode=parse_mode,
             disable_web_page_preview=True,
@@ -135,6 +166,30 @@ async def send(update: Update, text: str, reply_markup=None):
         text, reply_markup=reply_markup, parse_mode=ParseMode.HTML,
         disable_web_page_preview=True,
     )
+
+
+async def screen(update: Update, key: str, text: str, reply_markup=None):
+    """Ekranın resmi varsa fotoğraf + altyazı, yoksa düz yazı gönderir."""
+    if len(text) <= 1000:
+        file_id = media.cached(key)
+        if file_id:
+            try:
+                return await update.effective_chat.send_photo(
+                    file_id, caption=text, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
+            except Exception:
+                pass
+        path = media.path(key)
+        if path:
+            try:
+                with open(path, "rb") as fh:
+                    msg = await update.effective_chat.send_photo(
+                        fh, caption=text, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
+                if msg and msg.photo:
+                    media.remember(key, msg.photo[-1].file_id)
+                return msg
+            except Exception:
+                pass
+    return await send(update, text, reply_markup)
 
 
 def bet_rows(prefix: str, user, extra: str = "") -> list[list[tuple[str, str]]]:

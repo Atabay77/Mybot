@@ -15,6 +15,7 @@ import config
 import db
 import economy
 import events
+import i18n
 import items
 import ui
 
@@ -35,31 +36,64 @@ GAMES_INFO = {
 }
 
 
-def games_menu_text(user) -> str:
+def games_menu_text(user, lang: str = i18n.DEFAULT) -> str:
+    """Sade oyun menüsü: 3 kategori."""
     return (
-        "🎮 <b>OYUNLAR</b>\n"
-        f"{ui.header(user)}\n\n"
-        f"💵 Koyabileceğin coin: {ui.fmt(config.MIN_BET)} – {ui.fmt(economy.max_bet(user))}\n"
-        "<i>Seviyen yükseldikçe daha çok coin koyabilirsin.</i>\n\n"
-        "🎲 <b>Şans oyunları</b> — coin koyarsın, katlayabilirsin ama kaybedebilirsin de\n"
-        "🧠 <b>Bilgi oyunları</b> — bedava, kaybetmezsin\n"
-        "⚒ <b>İş oyunları</b> — belli aralıklarla kesin kazanç"
+        f"{i18n.t(lang, 'g_title')}\n{ui.LINE}\n"
+        f"{ui.header(user)}\n"
+        f"<blockquote>🎲 {i18n.t(lang, 'g_luck_info')}\n"
+        f"🧠 {i18n.t(lang, 'g_brain_info')}\n"
+        f"⚒ {i18n.t(lang, 'g_work_info')}</blockquote>\n"
+        f"{i18n.t(lang, 'g_pick')}"
     )
 
 
-def games_menu_kb() -> "object":
+def games_menu_kb(lang: str = i18n.DEFAULT):
     return ui.kb([
-        [("🎰 Slot", "g:pick:slots"), ("💣 Mayın", "g:pick:mines")],
-        [("🃏 Blackjack", "g:pick:bj"), ("🎴 Yüksek/Düşük", "g:pick:hilo")],
-        [("🎡 Rulet", "g:pick:rlt"), ("🎯 Çark", "g:pick:wheel")],
-        [("🪙 Yazı Tura", "g:pick:cf"), ("🎲 Zar", "g:pick:dice")],
-        [("🚀 Roket", "g:pick:crash")],
-        [("🧠 Bilgi", "g:sk:quiz"), ("➗ Matematik", "g:sk:math")],
-        [("🔤 Kelime", "g:sk:word"), ("⚡ Refleks", "g:sk:reflex")],
-        [("💼 Çalış", "g:work"), ("⛏ Maden", "g:mine")],
-        [("🗡 Canavar Avı", "g:arena")],
-        [("💵 Para Çek", "cash:menu"), ("🏠 Menü", "m:main")],
+        [(i18n.t(lang, "g_luck"), "g:cat:luck")],
+        [(i18n.t(lang, "g_brain"), "g:cat:brain")],
+        [(i18n.t(lang, "g_work"), "g:cat:work")],
+        [(i18n.t(lang, "b_money"), "cash:menu"), (i18n.t(lang, "b_home"), "m:main")],
     ])
+
+
+CATEGORIES = {
+    "luck": [
+        [("🎰 Slot", "g:pick:slots"), ("💣 Mina", "g:pick:mines")],
+        [("🃏 Blackjack", "g:pick:bj"), ("🎴 Hi-Lo", "g:pick:hilo")],
+        [("🎡 Ruletka", "g:pick:rlt"), ("🎯 Wheel", "g:pick:wheel")],
+        [("🪙 Orёl/Reşka", "g:pick:cf"), ("🎲 Zar", "g:pick:dice")],
+        [("🚀 Raketa", "g:pick:crash")],
+    ],
+    "brain": [
+        [("🧠 Sorag-jogap", "g:sk:quiz")],
+        [("➗ Matematika", "g:sk:math")],
+        [("🔤 Söz", "g:sk:word")],
+        [("⚡ Refleks", "g:sk:reflex")],
+    ],
+    "work": [
+        [("💼 Iş / Работа", "g:work")],
+        [("⛏ Magdan / Шахта", "g:mine")],
+        [("🗡 Arena", "g:arena")],
+    ],
+}
+
+
+def category_kb(cat: str, lang: str = i18n.DEFAULT):
+    rows = [list(row) for row in CATEGORIES[cat]]
+    rows.append([(i18n.t(lang, "b_back"), "g:menu"), (i18n.t(lang, "b_home"), "m:main")])
+    return ui.kb(rows)
+
+
+def category_text(cat: str, user, lang: str = i18n.DEFAULT) -> str:
+    title = {"luck": "g_luck", "brain": "g_brain", "work": "g_work"}[cat]
+    info = {"luck": "g_luck_info", "brain": "g_brain_info", "work": "g_work_info"}[cat]
+    text = (f"<b>{i18n.t(lang, title)}</b>\n{ui.LINE}\n"
+            f"{ui.header(user)}\n<i>{i18n.t(lang, info)}</i>\n")
+    if cat == "luck":
+        text += "\n" + i18n.t(lang, "g_bet_range", min=ui.fmt(config.MIN_BET),
+                              max=ui.fmt(economy.max_bet(user)))
+    return text + "\n" + i18n.t(lang, "g_pick")
 
 
 def validate_bet(user, amount: int) -> tuple[bool, str]:
@@ -104,9 +138,10 @@ async def result_screen(query, user_id: int, text: str, again_cb: str) -> None:
         text += "\n\n🏅 <b>YENİ BAŞARIM!</b>\n" + "\n".join(unlocked)
     user = db.get_user(user_id)
     text += f"\n\n{ui.header(user)}"
+    lang = i18n.lang_of(user_id)
     await ui.safe_edit(query, text, ui.kb([
-        [("🔄 Tekrar Oyna", again_cb)],
-        [("🎮 Oyunlar", "g:menu"), ("🏠 Menü", "m:main")],
+        [(i18n.t(lang, "b_again"), again_cb)],
+        [(i18n.t(lang, "b_play"), "g:menu"), (i18n.t(lang, "b_home"), "m:main")],
     ]))
 
 
@@ -365,7 +400,7 @@ async def mines_cash(query, context, user_id: int, perfect: bool = False) -> Non
     picks = len(session["picked"])
     if picks == 0:
         settle(user_id, session["bet"], session["bet"], "mayın")
-        await ui.safe_edit(query, "🏳 Oyundan çıktın, bahsin geri verildi.", games_menu_kb())
+        await ui.safe_edit(query, "🏳 Oyundan çıktın, bahsin geri verildi.", games_menu_kb(i18n.lang_of(user_id)))
         return
     mult = mines_mult(session["mines"], picks)
     won = int(session["bet"] * mult)
@@ -857,7 +892,7 @@ async def on_text_answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     elapsed = time.time() - session["ts"]
     if elapsed > session.get("limit", 30):
         await ui.send(update, f"⏰ <b>Süre doldu!</b> ({elapsed:.0f} sn)\nDoğru cevap: <b>{session['answer']}</b>",
-                      games_menu_kb())
+                      games_menu_kb(i18n.lang_of(update.effective_user.id)))
         return True
     if given.replace(" ", "") == str(session["answer"]).lower():
         won = economy.payout(db.get_user(user_id), session["reward"])
@@ -871,9 +906,9 @@ async def on_text_answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         text = (f"✅ <b>DOĞRU!</b> ({elapsed:.1f} sn)\n\n+{ui.fmt(won)} 🪙  +35 XP{extra}")
         if unlocked:
             text += "\n\n🏅 <b>YENİ BAŞARIM!</b>\n" + "\n".join(unlocked)
-        await ui.send(update, text, games_menu_kb())
+        await ui.send(update, text, games_menu_kb(i18n.lang_of(update.effective_user.id)))
     else:
-        await ui.send(update, f"❌ <b>Yanlış.</b>\nDoğru cevap: <b>{session['answer']}</b>", games_menu_kb())
+        await ui.send(update, f"❌ <b>{session['answer']}</b>", games_menu_kb(i18n.lang_of(user_id)))
     return True
 
 
@@ -1077,9 +1112,15 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
 
     # --- menü ---
+    lang = i18n.lang_of(user_id)
     if action == "menu":
         clear_sessions(context)
-        await ui.safe_edit(query, games_menu_text(user), games_menu_kb())
+        await ui.safe_edit(query, games_menu_text(user, lang), games_menu_kb(lang))
+        return
+    if action == "cat":
+        clear_sessions(context)
+        cat = parts[2]
+        await ui.safe_edit(query, category_text(cat, user, lang), category_kb(cat, lang))
         return
     if action == "noop":
         return
@@ -1090,8 +1131,8 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         emoji, name, desc = GAMES_INFO[game]
         prefix = BET_PREFIX[game][0]
         text = (
-            f"{emoji} <b>{name.upper()}</b>\n<i>{desc}</i>\n\n"
-            f"{ui.header(user)}\n\nBahsini seç 👇"
+            f"{emoji} <b>{name.upper()}</b>\n{ui.LINE}\n"
+            f"{ui.header(user)}\n" + i18n.t(lang, "g_choose_bet")
         )
         await ui.safe_edit(query, text, ui.kb(ui.bet_rows(prefix, user)))
         return
@@ -1313,8 +1354,9 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 async def cmd_games(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not ui.is_private(update):
-        await ui.send(update, "🎮 Oyun salonu özel sohbette açılıyor. Grupta PVP ve parti oyunları var: /duello, /parti",
+        await ui.send(update, i18n.t(i18n.lang_of(update.effective_user.id), "only_private"),
                       ui.pm_link())
         return
     user = db.get_user(update.effective_user.id)
-    await ui.send(update, games_menu_text(user), games_menu_kb())
+    lang = i18n.lang_of(user["user_id"])
+    await ui.screen(update, "games", games_menu_text(user, lang), games_menu_kb(lang))
