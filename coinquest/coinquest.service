@@ -1,0 +1,17 @@
+[Unit]
+Description=CoinQuest Telegram Oyun Botu
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/coinquest
+ExecStart=/opt/coinquest/venv/bin/python /opt/coinquest/bot.py
+Restart=always
+RestartSec=5
+StandardOutput=append:/var/log/coinquest.log
+StandardError=append:/var/log/coinquest.log
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
