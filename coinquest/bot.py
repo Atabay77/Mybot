@@ -25,6 +25,7 @@ import media
 import party
 import pvp
 import social
+import support
 import ui
 
 logging.basicConfig(
@@ -101,6 +102,97 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await msg.delete()
     except Exception:
         pass
+    if not user["captcha_ok"]:
+        await show_captcha(update.effective_chat, context, tg_user.id)
+        return
+    await ui.screen(update, "menu", main_menu_text(user), ui.main_menu_kb(lang))
+
+
+# ---------------------------------------------------------------------------
+# BOT KORUMASI (captcha)
+# ---------------------------------------------------------------------------
+
+def _captcha_question():
+    import random
+    a, b = random.randint(2, 19), random.randint(2, 19)
+    op = random.choice(["+", "-"])
+    if op == "-" and b > a:
+        a, b = b, a
+    answer = a + b if op == "+" else a - b
+    options = {answer}
+    while len(options) < 4:
+        options.add(answer + random.choice([-5, -3, -2, -1, 1, 2, 3, 4, 6]))
+    options = list(options)
+    random.shuffle(options)
+    return f"{a} {op} {b} = ?", options, options.index(answer)
+
+
+async def show_captcha(chat, context, user_id: int, first: bool = True) -> None:
+    lang = i18n.lang_of(user_id)
+    question, options, correct = _captcha_question()
+    context.user_data["captcha"] = correct
+    rows = [[(str(v), f"cap:{i}") for i, v in enumerate(options)]]
+    text = (f"{i18n.t(lang, 'cap_title')}\n{ui.LINE}\n"
+            f"{i18n.t(lang, 'cap_ask')}\n\n<code>   {question}   </code>")
+    await chat.send_message(text, parse_mode=ParseMode.HTML, reply_markup=ui.kb(rows))
+
+
+async def on_captcha(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    user_id = update.effective_user.id
+    lang = i18n.lang_of(user_id)
+    user = db.get_user(user_id)
+    if user is None:
+        await query.answer()
+        return
+    correct = context.user_data.get("captcha")
+    picked = int(query.data.split(":")[1])
+    tries = user["captcha_try"] + 1
+    db.upd(user_id, captcha_try=tries)
+
+    if correct is None or picked != correct:
+        await query.answer(i18n.t(lang, "cap_wrong", n=tries, max=config.CAPTCHA_MAX_TRIES),
+                           show_alert=True)
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
+        await show_captcha(query.message.chat, context, user_id, first=False)
+        return
+
+    db.upd(user_id, captcha_ok=1)
+    context.user_data.pop("captcha", None)
+    await query.answer(i18n.t(lang, "cap_ok"))
+    # davet ödülü: ilk denemede tam, 2-3. denemede yarım, sonrası yok
+    if user["referrer"] and not user["ref_paid"]:
+        if tries == 1:
+            factor = 1.0
+        elif tries <= config.CAPTCHA_MAX_TRIES:
+            factor = 0.5
+        else:
+            factor = 0.0
+        social.grant_referral(user_id, user["referrer"], factor)
+        db.upd(user_id, ref_paid=1)
+        if factor > 0:
+            try:
+                inviter_lang = i18n.lang_of(user["referrer"])
+                await context.bot.send_message(
+                    user["referrer"],
+                    f"👥 <b>{ui.name_of(db.get_user(user_id))}</b> +"
+                    f"{ui.fmt(int(config.REF_REWARD_COINS * factor))} 🪙"
+                    + ("" if factor == 1 else "  <i>(bot koruması 1. denemede geçilmedi, yarım ödül)</i>"),
+                    parse_mode=ParseMode.HTML)
+            except Exception:
+                pass
+    try:
+        await query.message.delete()
+    except Exception:
+        pass
+    if not user["last_daily"] and user["games"] == 0:
+        await query.message.chat.send_message(
+            i18n.t(lang, "welcome", coins=ui.fmt(config.START_COINS), gems=config.START_GEMS),
+            parse_mode=ParseMode.HTML)
+    user = db.get_user(user_id)
     await ui.screen(update, "menu", main_menu_text(user), ui.main_menu_kb(lang))
 
 
@@ -132,11 +224,13 @@ async def on_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         lang = parts[2]
         user = db.get_user(user_id)
         await query.answer(i18n.t(lang, "lang_ok"))
-        if not user["last_daily"] and user["games"] == 0:
-            await context.bot.send_message(
-                query.message.chat_id,
-                i18n.t(lang, "welcome", coins=ui.fmt(config.START_COINS), gems=config.START_GEMS),
-                parse_mode=ParseMode.HTML, reply_markup=ui.remove_bottom())
+        if not user["captcha_ok"]:
+            try:
+                await query.message.delete()
+            except Exception:
+                pass
+            await show_captcha(query.message.chat, context, user_id)
+            return
         await ui.nav(query, "menu", main_menu_text(user), ui.main_menu_kb(lang))
         return
 
@@ -206,24 +300,35 @@ BOTTOM_ACTIONS = {
 }
 
 
-async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.message is None or not update.message.text:
+async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Yazı ve medya mesajlarını ilgili bölüme yönlendirir."""
+    msg = update.message
+    if msg is None:
         return
     if ui.is_private(update):
+        # destek ve reklam her tür medyayı kabul eder
+        for handler in (support.on_message, admin.on_text):
+            try:
+                if await handler(update, context):
+                    return
+            except Exception:
+                log.exception("işleyici hatası: %s", handler.__name__)
+        if not msg.text:
+            return
         if await on_bottom_button(update, context):
             return
-        for handler in (admin.on_text, cash.on_text, market.on_text, social.on_text,
-                        games.on_text_answer):
+        for handler in (cash.on_text, market.on_text, social.on_text, games.on_text_answer):
             try:
                 if await handler(update, context):
                     return
             except Exception:
                 log.exception("metin işleyici hatası: %s", handler.__name__)
         return
-    try:
-        await party.on_text(update, context)
-    except Exception:
-        log.exception("parti metin işleyici hatası")
+    if msg.text:
+        try:
+            await party.on_text(update, context)
+        except Exception:
+            log.exception("parti metin işleyici hatası")
 
 
 # ---------------------------------------------------------------------------
@@ -252,6 +357,17 @@ async def pre_process(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         if update.callback_query:
             await update.callback_query.answer("🚫 Bu bottan yasaklandın.", show_alert=True)
         raise ApplicationHandlerStop
+
+
+async def on_unknown_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Hiçbir kalıba uymayan buton — kullanıcı boşluğa basmasın."""
+    query = update.callback_query
+    log.warning("bilinmeyen buton: %s (user %s)", query.data, update.effective_user.id)
+    await query.answer("Bu buton eskimiş, menüyü yeniliyorum 🙂", show_alert=False)
+    user = db.get_user(update.effective_user.id)
+    if user and ui.is_private(update):
+        await ui.nav(query, "menu", main_menu_text(user),
+                     ui.main_menu_kb(i18n.lang_of(user["user_id"])))
 
 
 async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -307,6 +423,7 @@ def build_app() -> Application:
     app.add_handler(CommandHandler(["davet", "ref"], social.cmd_ref))
     app.add_handler(CommandHandler(["yardim", "help"], social.cmd_help))
     app.add_handler(CommandHandler(["para", "cek", "cash"], cash.cmd_cash))
+    app.add_handler(CommandHandler(["destek", "support", "komek"], support.cmd_support))
     app.add_handler(CommandHandler("admin", admin.cmd_admin))
 
     # callback yönlendirmeleri
@@ -319,10 +436,17 @@ def build_app() -> Application:
     app.add_handler(CallbackQueryHandler(social.on_callback, pattern=r"^s:"))
     app.add_handler(CallbackQueryHandler(events.on_callback, pattern=r"^ev:"))
     app.add_handler(CallbackQueryHandler(cash.on_callback, pattern=r"^cash:"))
+    app.add_handler(CallbackQueryHandler(support.on_callback, pattern=r"^sup:"))
+    app.add_handler(CallbackQueryHandler(on_captcha, pattern=r"^cap:"))
     app.add_handler(CallbackQueryHandler(admin.on_callback, pattern=r"^ad:"))
 
-    # düz metin
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
+    # yazı + medya (destek ve reklam için)
+    media_filter = (filters.TEXT | filters.PHOTO | filters.VIDEO | filters.ANIMATION
+                    | filters.Document.ALL | filters.VOICE | filters.AUDIO
+                    | filters.Sticker.ALL | filters.VIDEO_NOTE)
+    app.add_handler(MessageHandler(media_filter & ~filters.COMMAND, on_message))
+    # tanınmayan buton: sessiz kalmasın
+    app.add_handler(CallbackQueryHandler(on_unknown_button))
 
     app.add_error_handler(on_error)
 
@@ -332,6 +456,7 @@ def build_app() -> Application:
         jq.run_repeating(events.job_lottery, interval=300, first=90)
         jq.run_repeating(events.job_interest, interval=3600, first=300)
         jq.run_repeating(pvp.job_cleanup, interval=300, first=120)
+        jq.run_repeating(pvp.job_queue_clean, interval=120, first=60)
     else:
         log.warning("JobQueue yok: pip install 'python-telegram-bot[job-queue]'")
     return app

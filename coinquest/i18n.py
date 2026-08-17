@@ -265,6 +265,72 @@ STR: dict[str, dict[str, str]] = {
     "duel_private": {"tk": "⚔️ Duelller toparlarda bolýar. Meni dostlaryň topara goş!",
                      "ru": "⚔️ Дуэли проходят в группах. Добавь меня в группу с друзьями!",
                      "tr": "⚔️ Düellolar gruplarda olur. Beni arkadaş grubuna ekle!"},
+    # ---------- DESTEK ----------
+    "b_support": {"tk": "🆘 Kömek gullugy", "ru": "🆘 Поддержка", "tr": "🆘 Destek"},
+    "sup_title": {"tk": "🆘 <b>KÖMEK GULLUGY</b>", "ru": "🆘 <b>ПОДДЕРЖКА</b>",
+                  "tr": "🆘 <b>DESTEK</b>"},
+    "sup_info": {"tk": "<blockquote>Soragyň, kynçylygyň ýa-da teklibiň barmy?\n"
+                       "Ýaz — ýolbaşçy jogap berer.\nSurat, wideo hem ugradyp bilersiň.</blockquote>",
+                 "ru": "<blockquote>Есть вопрос, проблема или предложение?\n"
+                       "Напиши — админ ответит.\nМожно отправлять фото и видео.</blockquote>",
+                 "tr": "<blockquote>Sorun, sorun ya da önerin mi var?\n"
+                       "Yaz — yönetici cevaplayacak.\nFotoğraf, video da gönderebilirsin.</blockquote>"},
+    "sup_write": {"tk": "✍️ Habar ýaz", "ru": "✍️ Написать", "tr": "✍️ Mesaj yaz"},
+    "sup_ask": {"tk": "Habaryňy ýaz we ugrat 👇\n<i>Surat, wideo, ses — hemmesi bolýar.</i>",
+                "ru": "Напиши сообщение и отправь 👇\n<i>Фото, видео, голос — всё можно.</i>",
+                "tr": "Mesajını yaz ve gönder 👇\n<i>Fotoğraf, video, ses — hepsi olur.</i>"},
+    "sup_sent": {"tk": "✅ Habaryň ugradyldy! Jogap gelende habar ederin.",
+                 "ru": "✅ Сообщение отправлено! Ответ придёт сюда.",
+                 "tr": "✅ Mesajın gönderildi! Cevap buraya gelecek."},
+    "sup_from_staff": {"tk": "🎧 <b>Kömek gullugyndan jogap:</b>",
+                       "ru": "🎧 <b>Ответ поддержки:</b>",
+                       "tr": "🎧 <b>Destekten cevap:</b>"},
+    "sup_last": {"tk": "Soňky habarlar", "ru": "Последние сообщения", "tr": "Son mesajlar"},
+
+    # ---------- BOT KORUMASI ----------
+    "cap_title": {"tk": "🤖 <b>BOT DÄLDIGIŇI SUBUT ET</b>", "ru": "🤖 <b>ПОДТВЕРДИ, ЧТО ТЫ НЕ БОТ</b>",
+                  "tr": "🤖 <b>BOT OLMADIĞINI KANITLA</b>"},
+    "cap_ask": {"tk": "Aşakdaky sowagyň jogabyny saýla:", "ru": "Выбери правильный ответ:",
+                "tr": "Doğru cevabı seç:"},
+    "cap_ok": {"tk": "✅ Dogry! Oýna başlap bilersiň.", "ru": "✅ Верно! Можно играть.",
+               "tr": "✅ Doğru! Oynamaya başlayabilirsin."},
+    "cap_wrong": {"tk": "❌ Nädogry. Ýene synanyş ({n}/{max})", "ru": "❌ Неверно. Попробуй ещё ({n}/{max})",
+                  "tr": "❌ Yanlış. Tekrar dene ({n}/{max})"},
+    "cap_fail": {"tk": "🚫 Köp ýalňyş etdiň. Täze sowal:", "ru": "🚫 Слишком много ошибок. Новый вопрос:",
+                 "tr": "🚫 Çok yanlış yaptın. Yeni soru:"},
+    "cap_need": {"tk": "Öňürti bot däldigiňi subut et 👇", "ru": "Сначала подтверди, что ты не бот 👇",
+                 "tr": "Önce bot olmadığını kanıtla 👇"},
+
+    # ---------- PARA BİRİMİ ----------
+    "cur_pick": {"tk": "Haýsy pulda almak isleýärsiň?", "ru": "В какой валюте хочешь получить?",
+                 "tr": "Hangi para biriminde almak istersin?"},
+    "cur_note": {"tk": "USDT CryptoBot arkaly ugradylýar.", "ru": "USDT отправляется через CryptoBot.",
+                 "tr": "USDT, CryptoBot üzerinden gönderilir."},
+
+    # ---------- ONLINE DÜELLO ----------
+    "d_online": {"tk": "🌐 Onlaýn garşydaş tap", "ru": "🌐 Найти соперника онлайн",
+                 "tr": "🌐 Online rakip bul"},
+    "d_group": {"tk": "👥 Toparda duel gur", "ru": "👥 Дуэль в группе", "tr": "👥 Grupta düello kur"},
+    "d_search": {"tk": "🔍 <b>Garşydaş gözlenýär...</b>\n\nOýun: {game}\nJedel: {stake} 🪙\n\n"
+                       "<i>Biri tapylanda oýun awtomat başlar.</i>",
+                 "ru": "🔍 <b>Ищем соперника...</b>\n\nИгра: {game}\nСтавка: {stake} 🪙\n\n"
+                       "<i>Игра начнётся автоматически.</i>",
+                 "tr": "🔍 <b>Rakip aranıyor...</b>\n\nOyun: {game}\nBahis: {stake} 🪙\n\n"
+                       "<i>Biri bulununca oyun otomatik başlar.</i>"},
+    "d_cancel": {"tk": "🚫 Gözlegi bes et", "ru": "🚫 Отменить поиск", "tr": "🚫 Aramayı iptal et"},
+    "d_found": {"tk": "⚔️ <b>Garşydaş tapyldy!</b>", "ru": "⚔️ <b>Соперник найден!</b>",
+                "tr": "⚔️ <b>Rakip bulundu!</b>"},
+    "d_queued": {"tk": "Nobata goşuldyň, garaş...", "ru": "Ты в очереди, жди...",
+                 "tr": "Sıraya girdin, bekle..."},
+
+    # ---------- UYARILAR ----------
+    "no_money": {"tk": "❌ Teňňäň ýetenok!\nGerek: {need} 🪙\nSende: {have} 🪙",
+                 "ru": "❌ Не хватает монет!\nНужно: {need} 🪙\nУ тебя: {have} 🪙",
+                 "tr": "❌ Coinin yetmiyor!\nGereken: {need} 🪙\nSende: {have} 🪙"},
+    "no_gems": {"tk": "❌ Almazyň ýetenok! Gerek: {need} 💎",
+                "ru": "❌ Не хватает алмазов! Нужно: {need} 💎",
+                "tr": "❌ Elmasın yetmiyor! Gereken: {need} 💎"},
+
     "only_private": {"tk": "Bu bölüm diňe maňa şahsy ýazanyňda açylýar 🙂",
                      "ru": "Этот раздел открывается только в личном чате 🙂",
                      "tr": "Bu bölüm sadece bana özelden yazınca açılır 🙂"},
@@ -300,7 +366,8 @@ def set_lang(user_id: int, lang: str) -> None:
 
 def all_button_labels() -> dict[str, str]:
     """Bütün dillerdeki alt buton yazıları -> anahtar eşlemesi."""
-    keys = ["b_play", "b_money", "b_gift", "b_shop", "b_items", "b_friends", "b_menu"]
+    keys = ["b_play", "b_money", "b_gift", "b_shop", "b_items", "b_friends", "b_menu",
+            "b_support"]
     out = {}
     for key in keys:
         for lang in LANGS:

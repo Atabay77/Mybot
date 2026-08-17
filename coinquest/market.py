@@ -11,6 +11,7 @@ import config
 import db
 import economy
 import events
+import i18n
 import items
 import ui
 
@@ -30,11 +31,11 @@ PAGE = 8
 
 def market_text(user) -> str:
     return (
-        "🏪 <b>DİYAR MARKETİ</b>\n"
-        f"{ui.header(user)}\n\n"
-        "Ekipman al, güçlen, arenada ve boss savaşlarında fark yarat.\n"
-        "Mitik eşyalar sadece 💎 elmas ile alınır.\n\n"
-        "<i>Sattığın eşyaların %40'ını geri alırsın; oyuncu pazarında ise fiyatı sen belirlersin.</i>"
+        f"🏪 <b>MARKET</b>\n{ui.LINE}\n"
+        f"{ui.header(user)}\n"
+        "<blockquote>Silah ve zırh al → güçlen → arenada, canavarda "
+        "ve düelloda daha çok kazan.</blockquote>\n"
+        "Hangi bölüme bakalım? 👇"
     )
 
 
@@ -47,22 +48,28 @@ def market_kb():
 
 
 def cat_text(kind: str, user) -> str:
+    """Her eşya ayrı bir kutuda — okunması kolay olsun diye."""
     label = dict(CATS)[kind]
-    lines = [f"🏪 <b>{label.upper()}</b>", ui.header(user), ""]
+    lines = [f"🏪 <b>{label.upper()}</b>\n{ui.LINE}", ui.header(user), ""]
     for item in sorted(items.by_kind(kind), key=lambda i: (i["currency"] == "gems", i["price"])):
         cur = "💎" if item["currency"] == "gems" else "🪙"
-        stat = ""
+        stats = []
         if item["atk"]:
-            stat = f" ⚔️{item['atk']}"
+            stats.append(f"⚔️ {item['atk']}")
         if item["dfn"]:
-            stat = f" 🛡{item['dfn']}"
-        desc = f" — <i>{item['desc']}</i>" if item["desc"] else ""
-        lock = "" if user["level"] >= item["min_level"] else f" 🔒Sv.{item['min_level']}"
-        lines.append(
-            f"{items.rarity_icon(item)} {item['emoji']} <b>{item['name']}</b>{stat}{lock}\n"
-            f"    {ui.fmt(item['price'])} {cur}{desc}"
-        )
-    lines.append("\nSatın almak için butona bas 👇")
+            stats.append(f"🛡 {item['dfn']}")
+        line2 = "   ".join(stats)
+        can = user["level"] >= item["min_level"]
+        head = f"{items.rarity_icon(item)} {item['emoji']} <b>{item['name']}</b>"
+        if not can:
+            head += f"   🔒 Sv.{item['min_level']}"
+        body = f"💰 <b>{ui.fmt(item['price'])}</b> {cur}"
+        if line2:
+            body += f"\n{line2}"
+        if item["desc"]:
+            body += f"\n✨ <i>{item['desc']}</i>"
+        lines.append(f"{head}\n<blockquote>{body}</blockquote>")
+    lines.append("Almak için aşağıdaki düğmeye bas 👇")
     return "\n".join(lines)
 
 
@@ -92,12 +99,19 @@ def buy_item(user_id: int, key: str) -> tuple[bool, str]:
         return False, f"Bu eşya için Seviye {item['min_level']} gerekiyor."
     if item["kind"] == "business":
         return False, "İşletmeler 🏭 İşletme panelinden alınır."
+    lang = i18n.lang_of(user_id)
     if item["currency"] == "gems":
+        if user["gems"] < item["price"]:
+            return False, i18n.t(lang, "no_gems", need=item["price"])
         if not economy.take_gems(user_id, item["price"], f"satın alma: {key}"):
-            return False, f"Yeterli elmasın yok ({user['gems']}💎)."
+            return False, i18n.t(lang, "no_gems", need=item["price"])
     else:
+        if user["coins"] < item["price"]:
+            return False, i18n.t(lang, "no_money", need=ui.fmt(item["price"]),
+                                 have=ui.fmt(user["coins"]))
         if not economy.take_coins(user_id, item["price"], f"satın alma: {key}"):
-            return False, f"Yeterli altının yok ({ui.fmt(user['coins'])}🪙)."
+            return False, i18n.t(lang, "no_money", need=ui.fmt(item["price"]),
+                                 have=ui.fmt(user["coins"]))
     if item["key"] == "t_pickaxe":
         db.upd(user_id, pickaxe=user["pickaxe"] + 60)
         events.track(user_id, "buy")
@@ -116,10 +130,11 @@ def inv_text(user_id: int, page: int = 0) -> str:
     rows = db.inv_list(user_id)
     stats = economy.power(user)
     lines = [
-        "🎒 <b>ENVANTER</b>",
+        f"🎒 <b>EŞYALARIM</b>\n{ui.LINE}",
         ui.header(user),
-        f"⚔️ Saldırı: <b>{stats['atk']}</b>  🛡 Savunma: <b>{stats['dfn']}</b>  ❤️ Can: <b>{stats['hp']}</b>",
-        f"💥 Kritik: %{stats['crit'] * 100:.0f}  ⛏ Kazma: {user['pickaxe']}",
+        f"<blockquote>⚔️ Saldırı <b>{stats['atk']}</b>   🛡 Savunma <b>{stats['dfn']}</b>\n"
+        f"❤️ Can <b>{stats['hp']}</b>   💥 Kritik <b>%{stats['crit'] * 100:.0f}</b>\n"
+        f"⛏ Kazma dayanıklılığı: {user['pickaxe']}</blockquote>",
         "",
     ]
     equipped = {user["weapon_id"]: "⚔️", user["armor_id"]: "🛡", user["pet_id"]: "🐾"}
@@ -140,8 +155,9 @@ def inv_text(user_id: int, page: int = 0) -> str:
             stat = f" ⚔️{items.stat_at(item, row['item_lvl'], 'atk')}"
         if item["dfn"]:
             stat = f" 🛡{items.stat_at(item, row['item_lvl'], 'dfn')}"
-        lines.append(f"{items.rarity_icon(item)} {items.label(row['item_key'], row['item_lvl'])}{qty}{stat} {tag}")
-    lines.append(f"\nSayfa {page + 1}/{pages} • Eşya detayı için butona bas 👇")
+        lines.append(f"{items.rarity_icon(item)} {items.label(row['item_key'], row['item_lvl'])}"
+                     f"{qty}{stat}  {tag}")
+    lines.append(f"\n📄 Sayfa {page + 1}/{pages}\nDetay için eşyaya bas 👇")
     return "\n".join(lines)
 
 
@@ -181,10 +197,12 @@ def item_detail(user_id: int, inv_id: int) -> tuple[str, object]:
     if not item:
         return "Bilinmeyen eşya.", ui.back_kb("mk:inv")
     equipped = inv_id in (user["weapon_id"], user["armor_id"], user["pet_id"])
+    kind_tr = {"weapon": "silah", "armor": "zırh", "pet": "dost",
+               "consumable": "kullanılabilir", "tool": "alet", "business": "işletme"}
     lines = [
         f"{items.rarity_icon(item)} <b>{items.label(row['item_key'], row['item_lvl'])}</b>",
-        f"<i>{items.RARITY[item['rarity']][1]} • {item['kind']}</i>",
-        "",
+        f"<i>{items.RARITY[item['rarity']][1]} • {kind_tr.get(item['kind'], item['kind'])}</i>",
+        ui.LINE,
     ]
     if item["atk"]:
         lines.append(f"⚔️ Saldırı: <b>{items.stat_at(item, row['item_lvl'], 'atk')}</b> (temel {item['atk']})")
@@ -202,7 +220,7 @@ def item_detail(user_id: int, inv_id: int) -> tuple[str, object]:
         lines.append(
             f"\n🔨 Yükseltme +{row['item_lvl'] + 1}: {ui.fmt(cost)} 🪙 • başarı %{chance * 100:.0f}\n"
             f"<i>Başarısız olursa altın gider, eşya kalır.</i>")
-    lines.append(f"\n💰 Markete satış: {ui.fmt(items.sell_price(item, row['item_lvl']))} 🪙")
+    lines.append(f"\n💰 Markete satış fiyatı: <b>{ui.fmt(items.sell_price(item, row['item_lvl']))}</b> 🪙")
 
     rows = []
     if item["kind"] in ("weapon", "armor", "pet"):
@@ -280,8 +298,10 @@ def upgrade(user_id: int, inv_id: int) -> str:
     if row["item_lvl"] >= items.MAX_UPGRADE:
         return f"Bu eşya maksimum seviyede (+{items.MAX_UPGRADE})."
     cost = items.upgrade_cost(item, row["item_lvl"])
+    user0 = db.get_user(user_id)
     if not economy.take_coins(user_id, cost, "yükseltme"):
-        return f"Yükseltme için {ui.fmt(cost)} altın gerekiyor."
+        return i18n.t(i18n.lang_of(user_id), "no_money", need=ui.fmt(cost),
+                      have=ui.fmt(user0["coins"]))
     events.track(user_id, "upgrade")
     user = db.get_user(user_id)
     chance = items.upgrade_chance(row["item_lvl"]) + economy.luck(user) * 0.25
@@ -313,8 +333,10 @@ def sell_to_npc(user_id: int, inv_id: int) -> str:
 def bazaar_text(page: int = 0) -> str:
     rows = db.all_("SELECT * FROM bazaar WHERE sold_to=0 ORDER BY id DESC LIMIT 60")
     lines = [
-        "🛒 <b>OYUNCU PAZARI</b>",
-        "<i>Oyuncuların sattığı eşyalar. Satıcı %5 vergi öder.</i>",
+        f"🛒 <b>OYUNCU PAZARI</b>\n{ui.LINE}",
+        "<blockquote>Oyuncuların sattığı eşyalar.\n"
+        "Kendi eşyanı da satabilirsin: 🎒 Eşyalarım → Pazara Koy\n"
+        "Satıştan %5 vergi kesilir.</blockquote>",
         "",
     ]
     if not rows:
@@ -330,9 +352,10 @@ def bazaar_text(page: int = 0) -> str:
         base = item["price"] if item["currency"] == "coins" else item["price"] * 3000
         tag = "🔥 fırsat" if row["price"] < base * 0.8 else ("💸 pahalı" if row["price"] > base * 1.5 else "")
         lines.append(
-            f"#{row['id']} {items.rarity_icon(item)} <b>{items.label(row['item_key'], row['item_lvl'])}</b>"
-            f" — {ui.fmt(row['price'])} 🪙 {tag}\n"
-            f"    satıcı: {ui.esc(seller['first_name']) if seller else '?'}"
+            f"{items.rarity_icon(item)} <b>{items.label(row['item_key'], row['item_lvl'])}</b>  "
+            f"<code>#{row['id']}</code>\n"
+            f"<blockquote>💰 <b>{ui.fmt(row['price'])}</b> 🪙 {tag}\n"
+            f"👤 {ui.esc(seller['first_name']) if seller else '?'}</blockquote>"
         )
     lines.append(f"\nSayfa {page + 1}/{pages}")
     return "\n".join(lines)
@@ -372,8 +395,10 @@ def bazaar_buy(user_id: int, listing_id: int) -> str:
         return "Bu ilan satılmış ya da kaldırılmış."
     if row["seller_id"] == user_id:
         return "Kendi ilanını satın alamazsın. İptal için 📄 İlanlarım."
+    buyer = db.get_user(user_id)
     if not economy.take_coins(user_id, row["price"], f"pazar alım #{listing_id}"):
-        return "Yeterli altının yok."
+        return i18n.t(i18n.lang_of(user_id), "no_money", need=ui.fmt(row["price"]),
+                      have=ui.fmt(buyer["coins"]))
     net = int(row["price"] * (1 - config.BAZAAR_TAX))
     db.run("UPDATE bazaar SET sold_to=?, sold_ts=? WHERE id=?", (user_id, ui.now(), listing_id))
     db.inv_add(user_id, row["item_key"], row["qty"], row["item_lvl"],
@@ -446,8 +471,9 @@ def bazaar_cancel(user_id: int, listing_id: int) -> str:
 # ---------------------------------------------------------------------------
 
 def biz_text(user) -> str:
-    lines = ["🏭 <b>İŞLETMELER</b>",
-             "<i>Pasif gelir: her 4 saatte bir kasayı topla.</i>", ""]
+    lines = [f"🏭 <b>İŞ YERİM</b>\n{ui.LINE}",
+             "<blockquote>Pasif gelir: sen oynamasan bile kazanır.\n"
+             "Her 4 saatte bir kasayı topla.</blockquote>", ""]
     if user["business_key"]:
         item = items.get(user["business_key"])
         elapsed = ui.now() - user["business_ts"]
@@ -467,8 +493,10 @@ def biz_text(user) -> str:
     for item in items.by_kind("business"):
         lock = "" if user["level"] >= item["min_level"] else f" 🔒Sv.{item['min_level']}"
         roi = item["price"] / item["income"] * 4
-        lines.append(f"{item['emoji']} <b>{item['name']}</b>{lock} — {ui.fmt(item['price'])} 🪙\n"
-                     f"    {ui.fmt(item['income'])} 🪙/4s • kendini {roi:.0f} saatte amorti eder")
+        lines.append(f"{item['emoji']} <b>{item['name']}</b>{lock}\n"
+                     f"<blockquote>💰 Fiyat: <b>{ui.fmt(item['price'])}</b> 🪙\n"
+                     f"📈 Gelir: <b>{ui.fmt(item['income'])}</b> 🪙 / 4 saat\n"
+                     f"⏱ Kendini {roi:.0f} saatte öder</blockquote>")
     return "\n".join(lines)
 
 
@@ -500,7 +528,8 @@ def biz_buy(user_id: int, key: str) -> str:
     if user["business_key"] == key:
         return "Bu işletme zaten senin."
     if not economy.take_coins(user_id, item["price"], f"işletme: {key}"):
-        return f"Yeterli altının yok ({ui.fmt(item['price'])} 🪙 gerekli)."
+        return i18n.t(i18n.lang_of(user_id), "no_money", need=ui.fmt(item["price"]),
+                      have=ui.fmt(user["coins"]))
     old = items.get(user["business_key"]) if user["business_key"] else None
     refund = 0
     if old:
@@ -535,9 +564,9 @@ def biz_collect(user_id: int) -> str:
 
 def gems_text(user) -> str:
     return (
-        "💎 <b>ELMAS DÜKKANI</b>\n"
-        f"Elmasın: <b>{user['gems']}</b> 💎\n\n"
-        "Elmas nasıl kazanılır?\n"
+        f"💎 <b>ELMAS DÜKKANI</b>\n{ui.LINE}\n"
+        f"<blockquote>Elmasın: <b>{user['gems']}</b> 💎</blockquote>\n"
+        "<b>Elmas nasıl kazanılır?</b>\n"
         "• 🐉 Boss savaşlarında hasar vererek\n"
         "• 🏅 Başarımlardan\n"
         "• 🎚 Her 5 seviyede\n"

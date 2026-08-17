@@ -13,6 +13,7 @@ from telegram.ext import ContextTypes
 import config
 import db
 import economy
+import i18n
 import items
 import ui
 
@@ -323,8 +324,13 @@ def current_round():
 def buy_tickets(user_id: int, count: int) -> dict:
     rnd = current_round()
     cost = count * config.LOTTERY_TICKET_PRICE
+    user = db.get_user(user_id)
+    if user["coins"] < cost:
+        return {"ok": False, "msg": i18n.t(i18n.lang_of(user_id), "no_money",
+                                           need=ui.fmt(cost), have=ui.fmt(user["coins"]))}
     if not economy.take_coins(user_id, cost, "piyango bileti"):
-        return {"ok": False, "msg": "Yeterli altının yok."}
+        return {"ok": False, "msg": i18n.t(i18n.lang_of(user_id), "no_money",
+                                           need=ui.fmt(cost), have=ui.fmt(user["coins"]))}
     db.run(
         "INSERT INTO lottery_tickets (round_no, user_id, tickets) VALUES (?,?,?) "
         "ON CONFLICT(round_no, user_id) DO UPDATE SET tickets=tickets+excluded.tickets",
@@ -411,7 +417,8 @@ async def job_interest(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 def quests_text(user_id: int) -> str:
     quests = daily_quests(user_id)
-    lines = ["📜 <b>GÜNLÜK GÖREVLER</b>", "<i>Her gün 00:00 (UTC) yenilenir.</i>\n"]
+    lines = [f"📜 <b>GÜNLÜK GÖREVLER</b>\n{ui.LINE}",
+             "<i>Her gün yenilenir. Hepsini bitirirsen +2 💎 ekstra.</i>\n"]
     ready = 0
     for quest in quests:
         done = quest["progress"] >= quest["target"]
@@ -423,9 +430,10 @@ def quests_text(user_id: int) -> str:
         else:
             mark = "⬜"
         lines.append(
-            f"{mark} {quest['text']}\n"
-            f"    {ui.bar(quest['progress'], quest['target'], 8)} "
-            f"{ui.fmt(quest['progress'])}/{ui.fmt(quest['target'])} • ödül {ui.fmt(quest['reward'])}🪙"
+            f"{mark} <b>{quest['text']}</b>\n"
+            f"<blockquote>{ui.bar(quest['progress'], quest['target'], 10)}  "
+            f"{ui.fmt(quest['progress'])}/{ui.fmt(quest['target'])}\n"
+            f"🎁 Ödül: <b>{ui.fmt(quest['reward'])}</b> 🪙</blockquote>"
         )
     owned = int(db.scalar("SELECT COUNT(*) FROM achievements WHERE user_id=?", (user_id,)))
     lines.append(f"\n🏅 Başarımlar: <b>{owned}/{len(ACHIEVEMENTS)}</b>")

@@ -50,13 +50,17 @@ Oyuncu coin toplar, **💵 Para Çek** butonundan coinini paraya çevirir.
 | 1 TMT | 100.000 coin | `config.py` → `COINS_PER_MONEY` |
 | Günlük çevirme limiti | 0.70 TMT | `config.py` → `DAILY_MONEY_CAP` |
 | En az çekim | 5 TMT | `config.py` → `MIN_WITHDRAW` |
+| USDT kuru | 1 USDT = 19.65 TMT | `.env` → `TMT_PER_USDT` |
 | Gereken seviye | 10 | `config.py` → `WITHDRAW_MIN_LEVEL` |
 | Hesap yaşı | 7 gün | `config.py` → `WITHDRAW_MIN_DAYS` |
 
 **Günlük limit yüzünden 5 TMT'ye en erken 8 günde ulaşılır** (0.70 × 7 = 4.90).
 Oyuncu ne kadar zengin olursa olsun bunu hızlandıramaz.
 
-**Ödeme akışı:** Oyuncu tutarı ve ödeme bilgisini butonlarla seçer → sana bildirim gelir →
+Oyuncu parayı **TMT** ya da **USDT** olarak isteyebilir (USDT → CryptoBot).
+Kuru `.env` içinden değiştirirsin: `TMT_PER_USDT=19.65`
+
+**Ödeme akışı:** Oyuncu tutarı, para birimini ve ödeme bilgisini butonlarla seçer → sana bildirim gelir →
 `/admin` → 💸 Çekim Talepleri → **✅ Ödedim** / **❌ Reddet**.
 Reddedersen para oyuncuya otomatik geri yüklenir. Ödemeyi elden/havale sen yaparsın,
 bot para tutmaz. Not: bot **para yatırma almaz**, coin sadece oynayarak kazanılır.
@@ -117,8 +121,41 @@ günlük görevler, 13 başarım, 7 sıralama, arkadaş davet
 ---
 
 ## 🛠 Yönetici paneli (`/admin`)
-Çekim talepleri • istatistikler • coin/elmas verme • ban • toplu duyuru •
-canavar doğurma • çekiliş yapma • oyuncu sorgulama
+
+**Roller**
+| Rol | Nereden | Yapabildikleri |
+|---|---|---|
+| 👑 Kurucu | `.env` → `ADMIN_IDS` | her şey + yetkili ekleme/silme |
+| 🛠 Yönetici | panelden eklenir | ödeme, para verme, ban, reklam, destek |
+| 🎧 Destek | panelden eklenir | sadece destek kutusu |
+
+**Özellikler**
+- 💸 Ödeme talepleri — tek tuşla Ödedim / Reddet (ret otomatik iade)
+- 🎧 Destek kutusu — oyuncularla iki yönlü yazışma (fotoğraf, video, ses)
+- 📣 Reklam/duyuru — **her tür medya**, arka planda gönderilir, bot çalışmaya devam eder,
+  canlı ilerleme çubuğu
+- 🔍 Oyuncu arama + tam kart (bakiye, geçmiş, ödemeler, bot koruması durumu)
+- 🪙 Coin / 💎 elmas / 💵 gerçek para ekleme
+- 🚫 Ban / ban kaldırma (yetkililer banlanamaz)
+- 👮 Yetkili ekle-sil, 📊 istatistik, 📜 hareket kayıtları
+- 🐉 Canavar çıkarma, 🎟 çekiliş yapma
+
+**Güvenlik:** yetkililer sıralamalarda görünmez, her yönetici işlemi kayda geçer,
+her düğme rol kontrolünden geçer.
+
+## 🆘 Destek sistemi
+Oyuncu ana menüden **🆘 Destek**'e basar, yazar (fotoğraf/video da olur) →
+tüm yetkililere düşer → **💬 Cevapla** ile yanıt oyuncuya birebir iletilir.
+
+## 🤖 Bot koruması
+Yeni oyuncu dil seçiminden sonra matematik sorusu çözer.
+İlk denemede bilirse davet edene **tam ödül** (10.000 🪙),
+2-3. denemede bilirse **yarım ödül**, daha fazlasında ödül yok.
+
+## 🌐 Online düello (grup gerekmez)
+⚔️ Düello → 🌐 Online rakip bul → oyun + bahis seç → bot rakip eşleştirir.
+Taş-kağıt-makas, emoji zar, arena, gizemli kutu online oynanır;
+XOX ve açık lobi gruplarda devam eder. Rakip 10 dakikada bulunmazsa bahis iade edilir.
 
 ---
 

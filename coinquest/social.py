@@ -37,35 +37,38 @@ def profile_text(user_id: int) -> str:
     pet = db.inv_get(user["pet_id"], user_id) if user["pet_id"] else None
     biz = items.get(user["business_key"]) if user["business_key"] else None
     ach = int(db.scalar("SELECT COUNT(*) FROM achievements WHERE user_id=?", (user_id,)))
-    rank = int(db.scalar("SELECT COUNT(*)+1 FROM users WHERE coins+bank > ?", (user["coins"] + user["bank"],)))
+    hidden = db.hidden_ids()
+    marks = ",".join("?" * len(hidden)) if hidden else "0"
+    rank = int(db.scalar(
+        f"SELECT COUNT(*)+1 FROM users WHERE coins+bank > ? AND user_id NOT IN ({marks})",
+        (user["coins"] + user["bank"], *hidden)))
     winrate = (user["wins"] / max(1, user["wins"] + user["losses"])) * 100
 
     lines = [
-        f"👤 <b>{ui.name_of(user)}</b>  <i>{ui.esc(user['title'] or economy.title_for(user['level']))}</i>",
-        f"🏅 Servet sıralaması: <b>#{rank}</b>",
-        "",
-        f"🎚 Seviye <b>{user['level']}</b>  {ui.bar(user['xp'], need, 10)}  {ui.fmt(user['xp'])}/{ui.fmt(need)} XP",
-        f"⚡ Enerji {user['energy']}/{economy.max_energy(user['level'])}",
-        "",
-        f"🪙 Cüzdan: <b>{ui.fmt(user['coins'])}</b>",
-        f"🏦 Banka: <b>{ui.fmt(user['bank'])}</b>",
-        f"💎 Elmas: <b>{ui.fmt(user['gems'])}</b>",
-        f"💰 Toplam servet: <b>{ui.fmt(user['coins'] + user['bank'])}</b>",
-        "",
-        f"⚔️ Saldırı {stats['atk']}  🛡 Savunma {stats['dfn']}  ❤️ Can {stats['hp']}  💥 Kritik %{stats['crit'] * 100:.0f}",
-        f"🗡 Silah: {items.label(weapon['item_key'], weapon['item_lvl']) if weapon else '—'}",
-        f"🛡 Zırh: {items.label(armor['item_key'], armor['item_lvl']) if armor else '—'}",
-        f"🐾 Dost: {items.label(pet['item_key'], pet['item_lvl']) if pet else '—'}",
-        f"🏭 İşletme: {biz['emoji'] + ' ' + biz['name'] if biz else '—'}",
-        f"🏰 Klan: {ui.esc(clan['name']) if clan else '—'}",
-        "",
-        f"🎮 Oyun: <b>{ui.fmt(user['games'])}</b>  •  Kazanma oranı %{winrate:.0f}",
-        f"⚔️ PVP: <b>{user['pvp_wins']}</b>G / {user['pvp_losses']}Y",
-        f"🐉 Boss vuruşu: {user['boss_kills']}",
-        f"💥 En büyük kazanç: {ui.fmt(user['biggest_win'])} 🪙",
-        f"📅 Günlük seri: <b>{user['streak']}</b> gün",
-        f"👥 Davet: {user['refs']} kişi",
-        f"🏅 Başarım: {ach}/{len(events.ACHIEVEMENTS)}",
+        f"👤 <b>{ui.name_of(user)}</b>",
+        f"<i>{ui.esc(user['title'] or economy.title_for(user['level']))}</i>  •  🏅 #{rank}",
+        ui.LINE,
+        f"<blockquote>🎚 <b>Seviye {user['level']}</b>\n"
+        f"{ui.bar(user['xp'], need, 12)}\n"
+        f"{ui.fmt(user['xp'])} / {ui.fmt(need)} XP\n"
+        f"⚡ Enerji {user['energy']}/{economy.max_energy(user['level'])}</blockquote>",
+        f"<blockquote>🪙 Cüzdan: <b>{ui.fmt(user['coins'])}</b>\n"
+        f"🏦 Banka: <b>{ui.fmt(user['bank'])}</b>\n"
+        f"💎 Elmas: <b>{ui.fmt(user['gems'])}</b>\n"
+        f"💵 Gerçek para: <b>{ui.money(user['tmt'])}</b></blockquote>",
+        f"<blockquote>⚔️ Saldırı <b>{stats['atk']}</b>   🛡 Savunma <b>{stats['dfn']}</b>\n"
+        f"❤️ Can <b>{stats['hp']}</b>   💥 Kritik <b>%{stats['crit'] * 100:.0f}</b>\n"
+        f"🗡 {items.label(weapon['item_key'], weapon['item_lvl']) if weapon else '—'}\n"
+        f"🛡 {items.label(armor['item_key'], armor['item_lvl']) if armor else '—'}\n"
+        f"🐾 {items.label(pet['item_key'], pet['item_lvl']) if pet else '—'}</blockquote>",
+        f"<blockquote>🎮 Oyun: <b>{ui.fmt(user['games'])}</b>  (kazanma %{winrate:.0f})\n"
+        f"⚔️ Düello: <b>{user['pvp_wins']}</b> galibiyet / {user['pvp_losses']} yenilgi\n"
+        f"🐉 Canavar vuruşu: {user['boss_kills']}\n"
+        f"💥 En büyük kazanç: {ui.fmt(user['biggest_win'])} 🪙\n"
+        f"📅 Seri: <b>{user['streak']}</b> gün   👥 Davet: {user['refs']}\n"
+        f"🏅 Başarım: {ach}/{len(events.ACHIEVEMENTS)}</blockquote>",
+        f"🏭 {biz['emoji'] + ' ' + biz['name'] if biz else '—'}   "
+        f"🏰 {ui.esc(clan['name']) if clan else '—'}",
     ]
     buffs = []
     now = ui.now()
@@ -147,12 +150,13 @@ def bank_limit(user) -> int:
 def bank_text(user_id: int) -> str:
     user = db.get_user(user_id)
     return (
-        "🏦 <b>DİYAR BANKASI</b>\n\n"
-        f"🪙 Cüzdan: <b>{ui.fmt(user['coins'])}</b>\n"
-        f"🏦 Kasa: <b>{ui.fmt(user['bank'])}</b> / {ui.fmt(bank_limit(user))} limit\n\n"
-        f"📈 Faiz: günde %{int(config.BANK_INTEREST * 100)} (otomatik işler)\n"
-        "🛡 Bankadaki para <b>soygundan korunur</b>.\n\n"
-        "<i>Kasa limiti seviyenle büyür.</i>"
+        f"🏦 <b>BANKA</b>\n{ui.LINE}\n"
+        f"<blockquote>🪙 Cüzdan: <b>{ui.fmt(user['coins'])}</b>\n"
+        f"🏦 Kasa: <b>{ui.fmt(user['bank'])}</b>\n"
+        f"📦 Kasa limiti: {ui.fmt(bank_limit(user))}</blockquote>\n"
+        f"📈 Her gün <b>%{int(config.BANK_INTEREST * 100)}</b> faiz işler\n"
+        "🛡 Bankadaki paraya <b>kimse dokunamaz</b> (soygundan korunur)\n\n"
+        "<i>Kasa limiti seviyen arttıkça büyür.</i>"
     )
 
 
@@ -399,13 +403,14 @@ def clan_donate(user_id: int, amount: int) -> str:
 # ---------------------------------------------------------------------------
 # SIRALAMALAR
 # ---------------------------------------------------------------------------
+# NOT: yetkililer (admin/destek) sıralamalarda görünmez.
 TOPS = {
-    "rich": ("💰 En Zenginler", "SELECT first_name, coins+bank AS v FROM users ORDER BY v DESC LIMIT 10", "🪙"),
-    "level": ("🎚 En Yüksek Seviye", "SELECT first_name, level AS v FROM users ORDER BY v DESC, xp DESC LIMIT 10", "sv"),
-    "pvp": ("⚔️ PVP Kralları", "SELECT first_name, pvp_wins AS v FROM users ORDER BY v DESC LIMIT 10", "galibiyet"),
-    "win": ("💥 En Büyük Vuruş", "SELECT first_name, biggest_win AS v FROM users ORDER BY v DESC LIMIT 10", "🪙"),
-    "games": ("🎮 En Çok Oynayan", "SELECT first_name, games AS v FROM users ORDER BY v DESC LIMIT 10", "oyun"),
-    "boss": ("🐉 Boss Avcıları", "SELECT first_name, boss_kills AS v FROM users ORDER BY v DESC LIMIT 10", "vuruş"),
+    "rich":  ("💰 En Zenginler", "coins+bank", "🪙"),
+    "level": ("🎚 En Yüksek Seviye", "level", "sv"),
+    "pvp":   ("⚔️ PVP Kralları", "pvp_wins", "galibiyet"),
+    "win":   ("💥 En Büyük Vuruş", "biggest_win", "🪙"),
+    "games": ("🎮 En Çok Oynayan", "games", "oyun"),
+    "boss":  ("🐉 Canavar Avcıları", "boss_kills", "vuruş"),
 }
 
 
@@ -420,10 +425,15 @@ def top_text(kind: str = "rich") -> str:
         if not rows:
             lines.append("Henüz klan yok.")
         return "\n".join(lines)
-    title, sql, unit = TOPS.get(kind, TOPS["rich"])
-    rows = db.all_(sql)
+    title, column, unit = TOPS.get(kind, TOPS["rich"])
+    hidden = db.hidden_ids()
+    marks = ",".join("?" * len(hidden)) if hidden else "0"
+    rows = db.all_(
+        f"SELECT first_name, {column} AS v FROM users "
+        f"WHERE banned=0 AND user_id NOT IN ({marks}) ORDER BY v DESC LIMIT 10",
+        hidden)
     medals = ["🥇", "🥈", "🥉"] + ["🏅"] * 7
-    lines = [f"🏆 <b>{title.upper()}</b>\n"]
+    lines = [f"🏆 <b>{title.upper()}</b>\n{ui.LINE}"]
     for i, row in enumerate(rows):
         if not row["v"]:
             continue
@@ -455,9 +465,11 @@ def ref_text(user_id: int) -> str:
                       (user_id,))
     lines = [
         "👥 <b>ARKADAŞINI DAVET ET</b>\n",
-        "Her davet için:\n"
-        "• Sen: <b>+10.000 🪙</b> ve <b>+2 💎</b>\n"
-        "• Arkadaşın: <b>+5.000 🪙</b> başlangıç bonusu\n",
+        f"<blockquote>Her davet için:\n"
+        f"• Sen: <b>+{ui.fmt(config.REF_REWARD_COINS)} 🪙</b>\n"
+        f"• Arkadaşın: <b>+{ui.fmt(config.REF_REWARD_NEW)} 🪙</b></blockquote>\n"
+        "<i>Arkadaşın bot korumasını ilk denemede geçerse tam ödül, "
+        "2-3. denemede geçerse yarım ödül alırsın.</i>\n",
         f"🔗 Davet linkin:\n<code>{ui.esc(link)}</code>\n",
         f"📊 Davet ettiğin: <b>{user['refs']}</b> kişi",
     ]
@@ -469,16 +481,19 @@ def ref_text(user_id: int) -> str:
     return "\n".join(lines)
 
 
-def grant_referral(new_user_id: int, referrer_id: int) -> None:
+def grant_referral(new_user_id: int, referrer_id: int, factor: float = 1.0) -> None:
+    """Davet ödülü. factor: bot koruması 1. denemede geçildiyse 1.0, 2-3. denemede 0.5."""
     if not referrer_id or referrer_id == new_user_id:
         return
     ref = db.get_user(referrer_id)
     if not ref:
         return
-    economy.add_coins(referrer_id, 10_000, "davet ödülü")
-    economy.add_gems(referrer_id, 2, "davet ödülü")
     db.bump(referrer_id, refs=1)
-    economy.add_coins(new_user_id, 5_000, "davet bonusu")
+    reward = int(config.REF_REWARD_COINS * factor)
+    if reward > 0:
+        economy.add_coins(referrer_id, reward, "davet ödülü")
+    economy.add_coins(new_user_id, config.REF_REWARD_NEW, "davet bonusu")
+    db.log_action(referrer_id, "referral", f"{new_user_id} x{factor}")
 
 
 # ---------------------------------------------------------------------------

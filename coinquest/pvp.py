@@ -15,6 +15,7 @@ import db
 import economy
 import events
 import games
+import i18n
 import ui
 
 log = logging.getLogger(__name__)
@@ -50,6 +51,40 @@ def save(duel_id: int, data: dict, state: str = None) -> None:
                (json.dumps(data, ensure_ascii=False), state, duel_id))
     else:
         db.run("UPDATE duels SET data=? WHERE id=?", (json.dumps(data, ensure_ascii=False), duel_id))
+
+
+ONLINE_GAMES = ["rps", "dice", "arena", "box"]
+QUEUE_TIMEOUT = 10 * 60
+
+
+def is_online(duel) -> bool:
+    return duel["chat_id"] == 0
+
+
+async def render(context, duel, data, text, kb=None) -> None:
+    """Düello ekranını gösterir: onlineda iki oyuncuya da, grupta tek mesaja."""
+    if not is_online(duel):
+        try:
+            await context.bot.edit_message_text(
+                text, chat_id=duel["chat_id"], message_id=duel["message_id"],
+                parse_mode=ParseMode.HTML, reply_markup=kb)
+        except Exception:
+            pass
+        return
+    for slot, uid in (("m1", duel["p1"]), ("m2", duel["p2"])):
+        mid = data.get(slot)
+        try:
+            if mid:
+                await context.bot.edit_message_text(
+                    text, chat_id=uid, message_id=mid,
+                    parse_mode=ParseMode.HTML, reply_markup=kb)
+            else:
+                msg = await context.bot.send_message(uid, text, parse_mode=ParseMode.HTML,
+                                                     reply_markup=kb)
+                data[slot] = msg.message_id
+        except Exception:
+            continue
+    save(duel["id"], data)
 
 
 def pot_of(stake: int) -> int:
@@ -93,6 +128,23 @@ async def finish(context, duel, winner_id: int | None, text_head: str, extra: st
         f"{ui.mention(p1)} 🆚 {ui.mention(p2)}\n"
         f"{extra}\n\n{result}"
     )
+    if is_online(duel):
+        _row, data = load(duel["id"])
+        kb = ui.kb([[("🔄 Ýene / Ещё / Tekrar", f"pvp:onq:{duel['game']}:{stake}")],
+                    [("🏠", "m:main")]])
+        for slot, uid in (("m1", duel["p1"]), ("m2", duel["p2"])):
+            mid = data.get(slot)
+            try:
+                if mid:
+                    await context.bot.edit_message_text(
+                        text, chat_id=uid, message_id=mid,
+                        parse_mode=ParseMode.HTML, reply_markup=kb)
+                else:
+                    await context.bot.send_message(uid, text, parse_mode=ParseMode.HTML,
+                                                   reply_markup=kb)
+            except Exception:
+                continue
+        return
     try:
         await context.bot.edit_message_text(
             text, chat_id=duel["chat_id"], message_id=duel["message_id"],
@@ -275,9 +327,12 @@ def rps_text(duel, data) -> str:
 async def rps_start(context, duel) -> None:
     data = {"round": 1, "s1": 0, "s2": 0, "c1": None, "c2": None, "log": []}
     save(duel["id"], data)
-    await context.bot.edit_message_text(
-        rps_text(duel, data), chat_id=duel["chat_id"], message_id=duel["message_id"],
-        parse_mode=ParseMode.HTML, reply_markup=rps_kb(duel["id"]))
+    if is_online(duel):
+        await render(context, duel, data, rps_text(duel, data), rps_kb(duel["id"]))
+    else:
+        await context.bot.edit_message_text(
+            rps_text(duel, data), chat_id=duel["chat_id"], message_id=duel["message_id"],
+            parse_mode=ParseMode.HTML, reply_markup=rps_kb(duel["id"]))
 
 
 async def rps_pick(update, context, duel_id: int, choice: str) -> None:
@@ -298,7 +353,10 @@ async def rps_pick(update, context, duel_id: int, choice: str) -> None:
     await query.answer(f"Seçimin: {RPS[choice][0]} {RPS[choice][1]}")
     if not (data.get("c1") and data.get("c2")):
         save(duel_id, data)
-        await ui.safe_edit(query, rps_text(duel, data), rps_kb(duel_id))
+        if is_online(duel):
+            await render(context, duel, data, rps_text(duel, data), rps_kb(duel_id))
+        else:
+            await ui.safe_edit(query, rps_text(duel, data), rps_kb(duel_id))
         return
     c1, c2 = data["c1"], data["c2"]
     p1, p2 = db.get_user(duel["p1"]), db.get_user(duel["p2"])
@@ -328,7 +386,10 @@ async def rps_pick(update, context, duel_id: int, choice: str) -> None:
                      "\n".join(data["log"]) + f"\n\nSkor: <b>{data['s1']} - {data['s2']}</b>")
         return
     save(duel_id, data)
-    await ui.safe_edit(query, rps_text(duel, data), rps_kb(duel_id))
+    if is_online(duel):
+        await render(context, duel, data, rps_text(duel, data), rps_kb(duel_id))
+    else:
+        await ui.safe_edit(query, rps_text(duel, data), rps_kb(duel_id))
 
 
 # ---------------------------------------------------------------------------
@@ -413,6 +474,28 @@ DICE_EMOJIS = ["🎲", "🎯", "🎳", "⚽", "🏀"]
 async def dice_start(context, duel) -> None:
     emoji = random.choice(DICE_EMOJIS)
     p1, p2 = db.get_user(duel["p1"]), db.get_user(duel["p2"])
+    if is_online(duel):
+        _r, data = load(duel["id"])
+        head = (f"{emoji} <b>{i18n.t('tk', 'd_found')}</b>\n"
+                f"{ui.mention(p1)} 🆚 {ui.mention(p2)}\n"
+                f"💰 {ui.fmt(pot_of(duel['stake']))} 🪙")
+        await render(context, duel, data, head)
+        rolls = []
+        v1 = v2 = 0
+        for attempt in range(5):
+            v1, v2 = random.randint(1, 6), random.randint(1, 6)
+            for uid in (duel["p1"], duel["p2"]):
+                try:
+                    await context.bot.send_dice(uid, emoji=emoji)
+                except Exception:
+                    pass
+            rolls.append(f"{ui.name_of(p1)} <b>{v1}</b> — <b>{v2}</b> {ui.name_of(p2)}")
+            if v1 != v2:
+                break
+        await asyncio.sleep(3.2)
+        winner = duel["p1"] if v1 > v2 else (duel["p2"] if v2 > v1 else None)
+        await finish(context, duel, winner, f"{emoji} <b>DUEL #{duel['id']}</b>", "\n".join(rolls))
+        return
     await context.bot.edit_message_text(
         f"{emoji} <b>EMOJİ DÜELLOSU #{duel['id']}</b>\n\n"
         f"{ui.mention(p1)} 🆚 {ui.mention(p2)}\n"
@@ -445,6 +528,18 @@ async def dice_start(context, duel) -> None:
 async def arena_start(context, duel) -> None:
     p1, p2 = db.get_user(duel["p1"]), db.get_user(duel["p2"])
     s1, s2 = economy.power(p1), economy.power(p2)
+    if is_online(duel):
+        _r, data = load(duel["id"])
+        await render(context, duel, data, (
+            f"⚔️ <b>ARENA #{duel['id']}</b>\n"
+            f"{ui.mention(p1)} ⚔️{s1['atk']} 🛡{s1['dfn']} ❤️{s1['hp']}\n"
+            f"{ui.mention(p2)} ⚔️{s2['atk']} 🛡{s2['dfn']} ❤️{s2['hp']}\n\n🥁..."))
+        await asyncio.sleep(2.0)
+        fight = games.simulate_fight(s1, ui.name_of(p1), s2, ui.name_of(p2), max_rounds=16)
+        winner = duel["p1"] if fight["winner"] == "a" else duel["p2"]
+        extra = "\n".join(fight["log"][-8:]) + f"\n\n❤️ {fight['hp_a']} — {fight['hp_b']}"
+        await finish(context, duel, winner, f"⚔️ <b>ARENA #{duel['id']}</b>", extra)
+        return
     await context.bot.edit_message_text(
         f"⚔️ <b>ARENA DÜELLOSU #{duel['id']}</b>\n\n"
         f"{ui.mention(p1)} ⚔️{s1['atk']} 🛡{s1['dfn']} ❤️{s1['hp']}\n"
@@ -498,9 +593,12 @@ async def box_start(context, duel) -> None:
     values = random.sample([5, 12, 20, 35, 50, 80, 100, 150], 6)
     data = {"values": values, "picks": {}, "v1": None, "v2": None}
     save(duel["id"], data)
-    await context.bot.edit_message_text(
-        box_text(duel, data), chat_id=duel["chat_id"], message_id=duel["message_id"],
-        parse_mode=ParseMode.HTML, reply_markup=box_kb(duel["id"], data))
+    if is_online(duel):
+        await render(context, duel, data, box_text(duel, data), box_kb(duel["id"], data))
+    else:
+        await context.bot.edit_message_text(
+            box_text(duel, data), chat_id=duel["chat_id"], message_id=duel["message_id"],
+            parse_mode=ParseMode.HTML, reply_markup=box_kb(duel["id"], data))
 
 
 async def box_pick(update, context, duel_id: int, idx: int) -> None:
@@ -533,7 +631,93 @@ async def box_pick(update, context, duel_id: int, idx: int) -> None:
         await finish(context, duel, winner, f"🎁 <b>GİZEMLİ KUTU #{duel_id} BİTTİ</b>", extra)
         return
     save(duel_id, data)
-    await ui.safe_edit(query, box_text(duel, data), box_kb(duel_id, data))
+    if is_online(duel):
+        await render(context, duel, data, box_text(duel, data), box_kb(duel_id, data))
+    else:
+        await ui.safe_edit(query, box_text(duel, data), box_kb(duel_id, data))
+
+
+# ---------------------------------------------------------------------------
+# ONLINE EŞLEŞME (grup gerekmez)
+# ---------------------------------------------------------------------------
+
+async def queue_join(update, context, game: str, stake: int) -> None:
+    """Sıraya girer; uygun rakip varsa oyunu hemen başlatır."""
+    user_id = update.effective_user.id
+    user = db.get_user(user_id)
+    lang = i18n.lang_of(user_id)
+    ok, msg = games.validate_bet(user, stake)
+    if not ok:
+        await _answer(update, msg)
+        return
+    db.run("DELETE FROM queue WHERE created_ts < ?", (ui.now() - QUEUE_TIMEOUT,))
+    if db.one("SELECT 1 FROM queue WHERE user_id=?", (user_id,)):
+        await _answer(update, i18n.t(lang, "d_queued"))
+        return
+    rival = db.one(
+        "SELECT * FROM queue WHERE game=? AND stake=? AND user_id<>? ORDER BY created_ts LIMIT 1",
+        (game, stake, user_id))
+    if not economy.take_coins(user_id, stake, "pvp bahis"):
+        await _answer(update, i18n.t(lang, "no_money", need=ui.fmt(stake),
+                                     have=ui.fmt(user["coins"])))
+        return
+    if rival is None:
+        db.run("INSERT INTO queue (user_id, game, stake, created_ts) VALUES (?,?,?,?)",
+               (user_id, game, stake, ui.now()))
+        emoji, name, _d = MODES[game]
+        text = i18n.t(lang, "d_search", game=f"{emoji} {name}", stake=ui.fmt(stake))
+        kb = ui.kb([[(i18n.t(lang, "d_cancel"), "pvp:onc")]])
+        if update.callback_query:
+            await ui.safe_edit(update.callback_query, text, kb)
+        else:
+            await ui.send(update, text, kb)
+        return
+
+    db.run("DELETE FROM queue WHERE user_id=?", (rival["user_id"],))
+    cur = db.run(
+        "INSERT INTO duels (game, chat_id, p1, p2, stake, state, data, created_ts) "
+        "VALUES (?,0,?,?,?, 'playing', '{}', ?)",
+        (game, rival["user_id"], user_id, stake, ui.now()))
+    duel, data = load(int(cur.lastrowid))
+    if update.callback_query:
+        try:
+            await update.callback_query.message.delete()
+        except Exception:
+            pass
+    if game == "rps":
+        await rps_start(context, duel)
+    elif game == "box":
+        await box_start(context, duel)
+    elif game == "dice":
+        await dice_start(context, duel)
+    elif game == "arena":
+        await arena_start(context, duel)
+
+
+async def queue_leave(update, context) -> None:
+    user_id = update.effective_user.id
+    row = db.one("SELECT * FROM queue WHERE user_id=?", (user_id,))
+    if row:
+        db.run("DELETE FROM queue WHERE user_id=?", (user_id,))
+        economy.add_coins(user_id, row["stake"], "pvp sıra iptali")
+    lang = i18n.lang_of(user_id)
+    user = db.get_user(user_id)
+    if update.callback_query:
+        await ui.safe_edit(update.callback_query, pvp_menu_text(user, True), pvp_menu_kb(True))
+
+
+async def job_queue_clean(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Uzun süre eşleşemeyenlerin parasını iade eder."""
+    rows = db.all_("SELECT * FROM queue WHERE created_ts < ?", (ui.now() - QUEUE_TIMEOUT,))
+    for row in rows:
+        db.run("DELETE FROM queue WHERE user_id=?", (row["user_id"],))
+        economy.add_coins(row["user_id"], row["stake"], "pvp sıra zaman aşımı")
+        try:
+            await context.bot.send_message(
+                row["user_id"], "⏰ Rakip bulunamadı, bahsin geri verildi.",
+                reply_markup=ui.kb([[("⚔️", "pvp:menu")]]))
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -549,22 +733,22 @@ def pvp_menu_text(user, private: bool = True) -> str:
     modes = "\n".join(f"{e} <b>{n}</b> — {d}" for e, n, d in MODES.values())
     if private:
         return head + (
-            "Düellolar <b>gruplarda</b> oynanır: beni arkadaş grubuna ekle, "
-            "orada <code>/duello</code> yaz ve bahsini koy. Kim önce kabul ederse rakibin olur.\n\n"
+            "🌐 <b>Online</b>: rakip botun kendisi bulur, grup gerekmez.\n"
+            "👥 <b>Grup</b>: beni gruba ekle, orada düello kur.\n\n"
             + modes +
             "\n\n<i>Kazanan havuzun tamamını alır (%4 komisyon).</i>"
         )
     return head + "Bir mod seç, bahsini koy — grubundan biri kabul etsin 👇\n\n" + modes
 
 
-def pvp_menu_kb(private: bool = True):
+def pvp_menu_kb(private: bool = True, lang: str = i18n.DEFAULT):
     if private:
-        rows = []
+        rows = [[(i18n.t(lang, "d_online"), "pvp:on")]]
         if config.BOT_USERNAME:
-            rows.append([("➕ Beni Gruba Ekle",
+            rows.append([(i18n.t(lang, "d_group"),
                           f"url:https://t.me/{config.BOT_USERNAME}?startgroup=duello")])
-        rows.append([("📋 Açık Düellolar", "pvp:list"), ("🏆 PVP Sıralama", "pvp:top")])
-        rows.append([("🏠 Menü", "m:main")])
+        rows.append([("📋", "pvp:list"), (i18n.t(lang, "b_top"), "pvp:top")])
+        rows.append([(i18n.t(lang, "b_home"), "m:main")])
         return ui.kb(rows)
     rows = [[(f"{e} {n}", f"pvp:new:{k}")] for k, (e, n, _d) in MODES.items()]
     rows.append([("📋 Açık Düellolar", "pvp:list"), ("🏆 PVP Sıralama", "pvp:top")])
@@ -594,10 +778,35 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await query.answer("Önce bota özelden /start yaz.", show_alert=True)
         return
 
+    lang = i18n.lang_of(user_id)
     if action == "menu":
         await query.answer()
         private = ui.is_private(update)
-        await ui.nav(query, "duel", pvp_menu_text(user, private), pvp_menu_kb(private))
+        await ui.nav(query, "duel", pvp_menu_text(user, private), pvp_menu_kb(private, lang))
+    elif action == "on":
+        await query.answer()
+        rows = [[(f"{MODES[g][0]} {MODES[g][1]}", f"pvp:ong:{g}")] for g in ONLINE_GAMES]
+        rows.append([(i18n.t(lang, "b_back"), "pvp:menu")])
+        await ui.safe_edit(query, (
+            f"🌐 <b>{i18n.t(lang, 'd_online')}</b>\n{ui.LINE}\n{ui.header(user)}\n"
+            f"{i18n.t(lang, 'g_pick')}"
+        ), ui.kb(rows))
+    elif action == "ong":
+        await query.answer()
+        game = parts[2]
+        emoji, name, desc = MODES[game]
+        rows = ui.bet_rows(f"pvp:onq:{game}", user)[:-1]
+        rows.append([(i18n.t(lang, "b_back"), "pvp:on")])
+        await ui.safe_edit(query, (
+            f"{emoji} <b>{name}</b>\n{ui.LINE}\n{ui.header(user)}\n"
+            f"{i18n.t(lang, 'g_choose_bet')}"
+        ), ui.kb(rows))
+    elif action == "onq":
+        await query.answer()
+        await queue_join(update, context, parts[2], int(parts[3]))
+    elif action == "onc":
+        await query.answer()
+        await queue_leave(update, context)
     elif action == "new":
         await query.answer()
         if ui.is_private(update):

@@ -190,6 +190,68 @@ CREATE TABLE IF NOT EXISTS withdrawals (
 );
 CREATE INDEX IF NOT EXISTS idx_wd_state ON withdrawals(state, id);
 
+CREATE TABLE IF NOT EXISTS staff (
+    user_id  INTEGER PRIMARY KEY,
+    role     TEXT NOT NULL DEFAULT 'admin',   -- owner | admin | support
+    added_by INTEGER NOT NULL DEFAULT 0,
+    ts       INTEGER NOT NULL DEFAULT 0,
+    note     TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS tickets (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL,
+    state      TEXT NOT NULL DEFAULT 'acik',   -- acik | kapali
+    staff_id   INTEGER NOT NULL DEFAULT 0,
+    created_ts INTEGER NOT NULL DEFAULT 0,
+    last_ts    INTEGER NOT NULL DEFAULT 0,
+    unread     INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_ticket_state ON tickets(state, last_ts);
+
+CREATE TABLE IF NOT EXISTS ticket_msgs (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticket_id INTEGER NOT NULL,
+    sender    INTEGER NOT NULL,
+    is_staff  INTEGER NOT NULL DEFAULT 0,
+    kind      TEXT NOT NULL DEFAULT 'text',
+    file_id   TEXT NOT NULL DEFAULT '',
+    text      TEXT NOT NULL DEFAULT '',
+    ts        INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_tmsg ON ticket_msgs(ticket_id, id);
+
+CREATE TABLE IF NOT EXISTS broadcasts (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    admin_id   INTEGER NOT NULL,
+    src_chat   INTEGER NOT NULL DEFAULT 0,
+    src_msg    INTEGER NOT NULL DEFAULT 0,
+    kind       TEXT NOT NULL DEFAULT 'text',
+    file_id    TEXT NOT NULL DEFAULT '',
+    text       TEXT NOT NULL DEFAULT '',
+    total      INTEGER NOT NULL DEFAULT 0,
+    sent       INTEGER NOT NULL DEFAULT 0,
+    failed     INTEGER NOT NULL DEFAULT 0,
+    state      TEXT NOT NULL DEFAULT 'bekliyor',
+    created_ts INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS queue (
+    user_id    INTEGER PRIMARY KEY,
+    game       TEXT NOT NULL,
+    stake      INTEGER NOT NULL,
+    created_ts INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS actions (
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    what    TEXT NOT NULL DEFAULT '',
+    detail  TEXT NOT NULL DEFAULT '',
+    ts      INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_actions ON actions(user_id, id);
+
 CREATE TABLE IF NOT EXISTS meta (
     k TEXT PRIMARY KEY,
     v TEXT NOT NULL DEFAULT ''
@@ -221,7 +283,18 @@ EXTRA_USER_COLUMNS = [
     ("tmt_day", "TEXT NOT NULL DEFAULT ''"),        # bugünün tarihi
     ("tmt_paid", "INTEGER NOT NULL DEFAULT 0"),     # bugüne kadar ödenen toplam
     ("lang", "TEXT NOT NULL DEFAULT 'tk'"),         # dil: tk / ru / tr
+    ("captcha_ok", "INTEGER NOT NULL DEFAULT 0"),   # bot koruması geçildi mi
+    ("captcha_try", "INTEGER NOT NULL DEFAULT 0"),  # kaç denemede geçti
+    ("ref_paid", "INTEGER NOT NULL DEFAULT 0"),     # davet ödülü verildi mi
+    ("wd_currency", "TEXT NOT NULL DEFAULT 'TMT'"), # tercih ettiği para birimi
 ]
+
+
+EXTRA_TABLE_COLUMNS = {
+    "withdrawals": [("currency", "TEXT NOT NULL DEFAULT 'TMT'")],
+    "broadcasts": [("src_chat", "INTEGER NOT NULL DEFAULT 0"),
+                   ("src_msg", "INTEGER NOT NULL DEFAULT 0")],
+}
 
 
 def _migrate() -> None:
@@ -230,6 +303,14 @@ def _migrate() -> None:
         if name not in have:
             run(f"ALTER TABLE users ADD COLUMN {name} {ddl}")
             log.info("Veritabanı güncellendi: users.%s eklendi", name)
+    for table, cols in EXTRA_TABLE_COLUMNS.items():
+        existing = {row["name"] for row in all_(f"PRAGMA table_info({table})")}
+        if not existing:
+            continue
+        for name, ddl in cols:
+            if name not in existing:
+                run(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
+                log.info("Veritabanı güncellendi: %s.%s eklendi", table, name)
 
 
 def init() -> None:
@@ -402,3 +483,47 @@ def inv_count(user_id: int, item_key: str) -> int:
         "SELECT COALESCE(SUM(qty),0) FROM inventory WHERE user_id=? AND item_key=?",
         (user_id, item_key),
     ))
+
+
+# ---------------------------------------------------------------------------
+# YETKİLİLER (admin / destek)
+# ---------------------------------------------------------------------------
+
+def staff_role(user_id: int) -> str:
+    """'owner' / 'admin' / 'support' / '' döner."""
+    if user_id in config.ADMIN_IDS:
+        return "owner"
+    row = one("SELECT role FROM staff WHERE user_id=?", (user_id,))
+    return row["role"] if row else ""
+
+
+def staff_ids(*roles: str) -> list[int]:
+    if roles:
+        marks = ",".join("?" * len(roles))
+        rows = all_(f"SELECT user_id FROM staff WHERE role IN ({marks})", roles)
+    else:
+        rows = all_("SELECT user_id FROM staff")
+    out = [r["user_id"] for r in rows]
+    for uid in config.ADMIN_IDS:
+        if uid not in out:
+            out.append(uid)
+    return out
+
+
+def staff_add(user_id: int, role: str, by: int) -> None:
+    run("INSERT INTO staff (user_id, role, added_by, ts) VALUES (?,?,?,?) "
+        "ON CONFLICT(user_id) DO UPDATE SET role=excluded.role", (user_id, role, by, int(time.time())))
+
+
+def staff_remove(user_id: int) -> None:
+    run("DELETE FROM staff WHERE user_id=?", (user_id,))
+
+
+def hidden_ids() -> list[int]:
+    """Sıralamalarda görünmeyecek hesaplar (yetkililer)."""
+    return staff_ids()
+
+
+def log_action(user_id: int, what: str, detail: str = "") -> None:
+    run("INSERT INTO actions (user_id, what, detail, ts) VALUES (?,?,?,?)",
+        (user_id, what[:32], detail[:200], int(time.time())))

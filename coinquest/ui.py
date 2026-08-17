@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Arayüz yardımcıları: para biçimlendirme, klavyeler, güvenli mesaj düzenleme."""
 import html
+import logging
 import time
 from typing import Iterable, Optional
 
@@ -13,6 +14,8 @@ import config
 import economy
 import i18n
 import media
+
+log = logging.getLogger(__name__)
 
 E_COIN = "🪙"
 E_GEM = "💎"
@@ -86,7 +89,7 @@ def main_menu_kb(lang: str = i18n.DEFAULT) -> InlineKeyboardMarkup:
         [(i18n.t(lang, "b_profile"), "s:profile"), (i18n.t(lang, "b_items"), "mk:inv")],
         [(i18n.t(lang, "b_quests"), "ev:quests"), (i18n.t(lang, "b_top"), "s:top")],
         [(i18n.t(lang, "b_friends"), "s:ref"), (i18n.t(lang, "b_help"), "s:help")],
-        [(i18n.t(lang, "b_more"), "m:more")],
+        [(i18n.t(lang, "b_support"), "sup:menu"), (i18n.t(lang, "b_more"), "m:more")],
     ])
 
 
@@ -130,30 +133,35 @@ def header(user, with_money: bool = False) -> str:
 
 
 async def safe_edit(query, text: str, reply_markup=None, parse_mode=ParseMode.HTML):
-    """Mesajı düzenler. Mesajda fotoğraf varsa altyazıyı düzenler."""
+    """Mesajı düzenler. Başarısız olursa eski mesajı silip yenisini gönderir,
+    böylece kullanıcı asla 'tepki vermeyen buton' ile karşılaşmaz."""
     has_photo = bool(getattr(query.message, "photo", None))
     try:
-        if has_photo:
-            if len(text) > 1000:                      # altyazı sınırı: yazıyı ayrı gönder
-                return await query.message.reply_text(
-                    text, reply_markup=reply_markup, parse_mode=parse_mode,
-                    disable_web_page_preview=True)
+        if has_photo and len(text) <= 1000:
             return await query.edit_message_caption(
                 caption=text, reply_markup=reply_markup, parse_mode=parse_mode)
-        return await query.edit_message_text(
-            text, reply_markup=reply_markup, parse_mode=parse_mode,
-            disable_web_page_preview=True,
-        )
+        if not has_photo:
+            return await query.edit_message_text(
+                text, reply_markup=reply_markup, parse_mode=parse_mode,
+                disable_web_page_preview=True)
     except BadRequest as exc:
         if "not modified" in str(exc).lower():
             return None
-        try:
-            return await query.message.reply_text(
-                text, reply_markup=reply_markup, parse_mode=parse_mode,
-                disable_web_page_preview=True,
-            )
-        except Exception:
-            return None
+        log.warning("düzenleme başarısız (%s): %s", getattr(query, "data", "?"), exc)
+    except Exception as exc:
+        log.warning("düzenleme hatası (%s): %s", getattr(query, "data", "?"), exc)
+    # yedek yol: eskiyi sil, yenisini gönder
+    try:
+        await query.message.delete()
+    except Exception:
+        pass
+    try:
+        return await query.message.chat.send_message(
+            text, reply_markup=reply_markup, parse_mode=parse_mode,
+            disable_web_page_preview=True)
+    except Exception as exc:
+        log.error("mesaj gönderilemedi (%s): %s", getattr(query, "data", "?"), exc)
+        return None
 
 
 async def send(update: Update, text: str, reply_markup=None):

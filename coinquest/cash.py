@@ -17,13 +17,36 @@ import i18n
 import ui
 
 METHOD_KEYS = {"karta": "pm_card", "telefon": "pm_phone", "diger": "pm_other"}
-ASK_KEYS = {"karta": "pm_card_ask", "telefon": "pm_phone_ask", "diger": "pm_other_ask"}
+ASK_KEYS = {"karta": "pm_card_ask", "telefon": "pm_phone_ask", "diger": "pm_other_ask",
+            "crypto": "pm_other_ask"}
 
 money = ui.money            # 500 -> "5.00 TMT"
 
 
 def method_name(key: str, lang: str = i18n.DEFAULT) -> str:
+    if key == "crypto":
+        return f"🪙 CryptoBot ({config.CRYPTOBOT_NAME})"
     return i18n.t(lang, METHOD_KEYS.get(key, "pm_other"))
+
+
+def to_usdt(amount: int) -> float:
+    """Kuruş cinsinden TMT -> USDT."""
+    return round(amount / 100 / max(0.01, config.TMT_PER_USDT), 2)
+
+
+def usdt_str(amount: int) -> str:
+    return f"{to_usdt(amount):.2f} USDT"
+
+
+def request_display(row) -> str:
+    """Talebi para birimine göre yazar."""
+    try:
+        cur = row["currency"]
+    except (KeyError, IndexError):
+        cur = "TMT"
+    if cur == "USDT":
+        return f"<b>{usdt_str(row['amount'])}</b> ({money(row['amount'])})"
+    return f"<b>{money(row['amount'])}</b>"
 
 
 def _today() -> str:
@@ -133,7 +156,8 @@ def can_withdraw(user) -> tuple[bool, str]:
     return True, ""
 
 
-def create_request(user_id: int, amount: int, method: str, details: str) -> str:
+def create_request(user_id: int, amount: int, method: str, details: str,
+                   currency: str = "TMT") -> str:
     user = db.get_user(user_id)
     lang = i18n.lang_of(user_id)
     ok, msg = can_withdraw(user)
@@ -144,10 +168,13 @@ def create_request(user_id: int, amount: int, method: str, details: str) -> str:
         return f"{i18n.t(lang, 'm_not_yet')} {money(config.MIN_WITHDRAW)}"
     db.bump(user_id, tmt=-amount)
     cur = db.run(
-        "INSERT INTO withdrawals (user_id, amount, method, details, created_ts) VALUES (?,?,?,?,?)",
-        (user_id, amount, method, details[:120], ui.now()))
+        "INSERT INTO withdrawals (user_id, amount, currency, method, details, created_ts) "
+        "VALUES (?,?,?,?,?,?)",
+        (user_id, amount, currency, method, details[:120], ui.now()))
+    db.upd(user_id, wd_currency=currency)
     db.log_tx(user_id, 0, f"çekim talebi #{cur.lastrowid}")
-    return i18n.t(lang, "m_req_ok", amount=money(amount),
+    shown = usdt_str(amount) + f" ({money(amount)})" if currency == "USDT" else money(amount)
+    return i18n.t(lang, "m_req_ok", amount=shown,
                   method=method_name(method, lang), id=cur.lastrowid)
 
 
@@ -163,7 +190,7 @@ def history_text(user_id: int) -> str:
     for row in rows:
         icon = {"bekliyor": "⏳", "odendi": "✅", "reddedildi": "❌"}.get(row["state"], "•")
         date = dt.datetime.fromtimestamp(row["created_ts"]).strftime("%d.%m.%Y")
-        lines.append(f"{icon} #{row['id']} — <b>{money(row['amount'])}</b> • {date}")
+        lines.append(f"{icon} #{row['id']} — {request_display(row)} • {date}")
     return "\n".join(lines)
 
 
@@ -227,26 +254,56 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     elif action == "amt":
         amount = int(parts[2])
-        rows = [[(i18n.t(lang, key), f"cash:mth:{amount}:{code}")]
-                for code, key in METHOD_KEYS.items()]
-        rows.append([(i18n.t(lang, "b_back"), "cash:wd")])
+        if not config.USDT_ENABLED:
+            await _ask_method(query, lang, amount, "TMT")
+            return
         await ui.safe_edit(query, (
             f"{i18n.t(lang, 'm_wd')}\n{ui.LINE}\n"
-            f"<blockquote><b>{money(amount)}</b></blockquote>\n"
-            f"{i18n.t(lang, 'm_ask_method')}"
-        ), ui.kb(rows))
+            f"<blockquote><b>{money(amount)}</b>  =  <b>{usdt_str(amount)}</b>\n"
+            f"<i>1 USDT = {config.TMT_PER_USDT:g} {config.MONEY_NAME}</i></blockquote>\n"
+            f"{i18n.t(lang, 'cur_pick')}"
+        ), ui.kb([
+            [(f"🇹🇲 {money(amount)}", f"cash:cur:{amount}:TMT")],
+            [(f"💎 {usdt_str(amount)}", f"cash:cur:{amount}:USDT")],
+            [(i18n.t(lang, "b_back"), "cash:wd")],
+        ]))
+
+    elif action == "cur":
+        amount, currency = int(parts[2]), parts[3]
+        await _ask_method(query, lang, amount, currency)
 
     elif action == "mth":
         amount, method = int(parts[2]), parts[3]
-        context.user_data["await"] = {"kind": "cash_details", "amount": amount, "method": method}
+        currency = parts[4] if len(parts) > 4 else "TMT"
+        context.user_data["await"] = {"kind": "cash_details", "amount": amount,
+                                      "method": method, "currency": currency}
+        shown = usdt_str(amount) if currency == "USDT" else money(amount)
         await ui.safe_edit(query, i18n.t(
-            lang, "m_last", amount=money(amount), method=method_name(method, lang),
+            lang, "m_last", amount=shown, method=method_name(method, lang),
             what=i18n.t(lang, ASK_KEYS.get(method, "pm_other_ask"))
         ), ui.kb([[(i18n.t(lang, "m_cancel"), "cash:menu")]]))
 
     elif action == "hist":
         await ui.safe_edit(query, history_text(user_id), ui.kb([
             [(i18n.t(lang, "b_money"), "cash:menu")], [(i18n.t(lang, "b_home"), "m:main")]]))
+
+
+async def _ask_method(query, lang: str, amount: int, currency: str):
+    if currency == "USDT":
+        rows = [[(f"🪙 CryptoBot ({config.CRYPTOBOT_NAME})", f"cash:mth:{amount}:crypto:USDT")]]
+        note = f"\n<i>{i18n.t(lang, 'cur_note')}</i>"
+        shown = f"{usdt_str(amount)}  ({money(amount)})"
+    else:
+        rows = [[(i18n.t(lang, key), f"cash:mth:{amount}:{code}:TMT")]
+                for code, key in METHOD_KEYS.items()]
+        note = ""
+        shown = money(amount)
+    rows.append([(i18n.t(lang, "b_back"), "cash:wd")])
+    await ui.safe_edit(query, (
+        f"{i18n.t(lang, 'm_wd')}\n{ui.LINE}\n"
+        f"<blockquote><b>{shown}</b></blockquote>\n"
+        f"{i18n.t(lang, 'm_ask_method')}{note}"
+    ), ui.kb(rows))
 
 
 def _plain(text: str) -> str:
@@ -266,7 +323,8 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     if len(details) < 3:
         await ui.send(update, "❌", ui.kb([[(i18n.t(lang, "m_wd"), "cash:wd")]]))
         return True
-    result = create_request(user_id, pending["amount"], pending["method"], details)
+    result = create_request(user_id, pending["amount"], pending["method"], details,
+                            pending.get("currency", "TMT"))
     await ui.send(update, result, ui.kb([
         [(i18n.t(lang, "b_money"), "cash:menu")], [(i18n.t(lang, "b_home"), "m:main")]]))
 
@@ -277,7 +335,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
         text = (
             f"💸 <b>YENİ ÇEKİM TALEBİ #{row['id']}</b>\n{ui.LINE}\n"
             f"👤 {ui.mention(user)} (<code>{user_id}</code>)\n"
-            f"💵 Tutar: <b>{money(row['amount'])}</b>\n"
+            f"💵 Tutar: {request_display(row)}\n"
             f"📮 {method_name(row['method'], 'tr')}\n"
             f"📝 <code>{ui.esc(row['details'])}</code>\n\n"
             f"<blockquote>🎚 Seviye {user['level']} • {days_old(user)} günlük hesap\n"

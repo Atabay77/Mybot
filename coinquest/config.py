@@ -74,3 +74,13 @@ MIN_WITHDRAW = 500                 # en az 5.00 TMT çekilebilir
 WITHDRAW_MIN_LEVEL = 10            # çekim için gereken seviye
 WITHDRAW_MIN_DAYS = 7              # hesabın en az kaç günlük olması gerektiği
 # 0.70 x 7 gün = 4.90 TMT  ->  5 TMT'ye ulaşmak matematiksel olarak en az 8 gün sürer.
+
+# USDT seçeneği (CryptoBot ile ödeme)
+USDT_ENABLED = os.environ.get("USDT_ENABLED", "1") != "0"
+TMT_PER_USDT = float(os.environ.get("TMT_PER_USDT", "19.65"))   # 1 USDT kaç TMT
+CRYPTOBOT_NAME = os.environ.get("CRYPTOBOT_NAME", "@CryptoBot")
+
+# Davet ödülü (elmas yok, sadece coin)
+REF_REWARD_COINS = 10_000
+REF_REWARD_NEW = 5_000          # davet edilene verilen
+CAPTCHA_MAX_TRIES = 3           # bu kadar denemede bilemezse ödül yok
