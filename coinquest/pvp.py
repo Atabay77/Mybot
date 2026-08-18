@@ -155,16 +155,28 @@ async def finish(context, duel, winner_id: int | None, text_head: str, extra: st
         await context.bot.send_message(duel["chat_id"], text, parse_mode=ParseMode.HTML)
 
 
-def open_duels_text() -> str:
+def open_duels_text(lang: str = i18n.DEFAULT) -> str:
+    online = db.all_(
+        "SELECT q.*, u.first_name FROM queue q JOIN users u ON u.user_id=q.user_id "
+        "WHERE q.created_ts > ? ORDER BY q.stake DESC LIMIT 12", (ui.now() - QUEUE_TIMEOUT,))
     rows = db.all_(
         "SELECT d.*, u.first_name FROM duels d JOIN users u ON u.user_id=d.p1 "
         "WHERE d.state='open' AND d.created_ts > ? ORDER BY d.stake DESC LIMIT 12",
         (ui.now() - DUEL_TIMEOUT,),
     )
-    if not rows:
-        return ("⚔️ <b>AÇIK DÜELLOLAR</b>\n\nŞu anda bekleyen düello yok.\n"
-                "Sen bir tane aç, rakip gelsin! 👇")
-    lines = ["⚔️ <b>AÇIK DÜELLOLAR</b>\n"]
+    if not rows and not online:
+        return (f"⚔️ <b>{i18n.t(lang, 'd_list_t')}</b>\n{ui.LINE}\n"
+                + i18n.t(lang, "d_list_empty"))
+    lines = [f"⚔️ <b>{i18n.t(lang, 'd_list_t')}</b>\n{ui.LINE}"]
+    if online:
+        lines.append(f"<b>🌐 {i18n.t(lang, 'd_online_open')}</b>")
+        for row in online:
+            emoji, name, _ = MODES.get(row["game"], ("🎮", row["game"], ""))
+            lines.append(f"🔥 {emoji} <b>{name}</b> — {ui.fmt(row['stake'])} 🪙\n"
+                         f"<blockquote>👤 {ui.esc(row['first_name'])}</blockquote>")
+        lines.append("")
+    if rows:
+        lines.append(f"<b>👥 {i18n.t(lang, 'd_group_open')}</b>")
     for row in rows:
         emoji, name, _ = MODES.get(row["game"], ("🎮", row["game"], ""))
         group = db.one("SELECT title FROM groups WHERE chat_id=?", (row["chat_id"],))
@@ -651,8 +663,13 @@ async def queue_join(update, context, game: str, stake: int) -> None:
         await _answer(update, msg)
         return
     db.run("DELETE FROM queue WHERE created_ts < ?", (ui.now() - QUEUE_TIMEOUT,))
-    if db.one("SELECT 1 FROM queue WHERE user_id=?", (user_id,)):
-        await _answer(update, i18n.t(lang, "d_queued"))
+    if db.one("SELECT 1 FROM queue WHERE user_id=? AND game=? AND stake=?",
+              (user_id, game, stake)):
+        await _answer(update, i18n.t(lang, "d_already"))
+        return
+    open_mine = int(db.scalar("SELECT COUNT(*) FROM queue WHERE user_id=?", (user_id,)))
+    if open_mine >= 5:
+        await _answer(update, i18n.t(lang, "d_maxopen"))
         return
     rival = db.one(
         "SELECT * FROM queue WHERE game=? AND stake=? AND user_id<>? ORDER BY created_ts LIMIT 1",
@@ -666,14 +683,17 @@ async def queue_join(update, context, game: str, stake: int) -> None:
                (user_id, game, stake, ui.now()))
         emoji, name, _d = MODES[game]
         text = i18n.t(lang, "d_search", game=f"{emoji} {name}", stake=ui.fmt(stake))
-        kb = ui.kb([[(i18n.t(lang, "d_cancel"), "pvp:onc")]])
+        qid = int(db.scalar("SELECT id FROM queue WHERE user_id=? AND game=? AND stake=?",
+                            (user_id, game, stake)))
+        kb = ui.kb([[(i18n.t(lang, "d_cancel"), f"pvp:onc:{qid}")],
+                    [(i18n.t(lang, "d_mine"), "pvp:mine"), (i18n.t(lang, "b_home"), "m:main")]])
         if update.callback_query:
             await ui.safe_edit(update.callback_query, text, kb)
         else:
             await ui.send(update, text, kb)
         return
 
-    db.run("DELETE FROM queue WHERE user_id=?", (rival["user_id"],))
+    db.run("DELETE FROM queue WHERE id=?", (rival["id"],))   # sadece eşleşen ilan silinir
     cur = db.run(
         "INSERT INTO duels (game, chat_id, p1, p2, stake, state, data, created_ts) "
         "VALUES (?,0,?,?,?, 'playing', '{}', ?)",
@@ -694,16 +714,26 @@ async def queue_join(update, context, game: str, stake: int) -> None:
         await arena_start(context, duel)
 
 
-async def queue_leave(update, context) -> None:
+async def queue_leave(update, context, qid: int = 0) -> None:
+    """qid verilirse o ilanı, verilmezse bütün açık ilanları iptal eder."""
     user_id = update.effective_user.id
-    row = db.one("SELECT * FROM queue WHERE user_id=?", (user_id,))
-    if row:
-        db.run("DELETE FROM queue WHERE user_id=?", (user_id,))
-        economy.add_coins(user_id, row["stake"], "pvp sıra iptali")
     lang = i18n.lang_of(user_id)
+    if qid:
+        rows = db.all_("SELECT * FROM queue WHERE id=? AND user_id=?", (qid, user_id))
+    else:
+        rows = db.all_("SELECT * FROM queue WHERE user_id=?", (user_id,))
+    total = 0
+    for row in rows:
+        db.run("DELETE FROM queue WHERE id=?", (row["id"],))
+        economy.add_coins(user_id, row["stake"], "pvp ilan iptali")
+        total += row["stake"]
     user = db.get_user(user_id)
     if update.callback_query:
-        await ui.safe_edit(update.callback_query, pvp_menu_text(user, True), pvp_menu_kb(True))
+        if total:
+            await ui.answer(update.callback_query,
+                            i18n.t(lang, "d_cancelled", amount=ui.fmt(total)), alert=True)
+        await ui.safe_edit(update.callback_query, pvp_menu_text(user, True),
+                           pvp_menu_kb(True, lang, user_id))
 
 
 async def job_queue_clean(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -741,17 +771,40 @@ def pvp_menu_text(user, private: bool = True) -> str:
     return head + "Bir mod seç, bahsini koy — grubundan biri kabul etsin 👇\n\n" + modes
 
 
-def pvp_menu_kb(private: bool = True, lang: str = i18n.DEFAULT):
+def open_counts() -> dict[str, int]:
+    """Her oyun için bekleyen açık ilan sayısı (online kuyruk + grup düelloları)."""
+    counts = {}
+    for row in db.all_("SELECT game, COUNT(*) AS n FROM queue WHERE created_ts>? GROUP BY game",
+                       (ui.now() - QUEUE_TIMEOUT,)):
+        counts[row["game"]] = counts.get(row["game"], 0) + row["n"]
+    for row in db.all_("SELECT game, COUNT(*) AS n FROM duels WHERE state='open' AND created_ts>? "
+                       "GROUP BY game", (ui.now() - DUEL_TIMEOUT,)):
+        counts[row["game"]] = counts.get(row["game"], 0) + row["n"]
+    return counts
+
+
+def fire_tag(game: str, counts: dict) -> str:
+    n = counts.get(game, 0)
+    return f"  {n}🔥" if n else ""
+
+
+def pvp_menu_kb(private: bool = True, lang: str = i18n.DEFAULT, user_id: int = 0):
+    counts = open_counts()
+    total = sum(counts.values())
     if private:
         rows = [[(i18n.t(lang, "d_online"), "pvp:on")]]
         if config.BOT_USERNAME:
             rows.append([(i18n.t(lang, "d_group"),
                           f"url:https://t.me/{config.BOT_USERNAME}?startgroup=duello")])
-        rows.append([("📋", "pvp:list"), (i18n.t(lang, "b_top"), "pvp:top")])
+        rows.append([(i18n.t(lang, "d_list") + (f"  {total}🔥" if total else ""), "pvp:list"),
+                     (i18n.t(lang, "b_top"), "pvp:top")])
+        if user_id and db.one("SELECT 1 FROM queue WHERE user_id=?", (user_id,)):
+            rows.append([(i18n.t(lang, "d_mine"), "pvp:mine")])
         rows.append([(i18n.t(lang, "b_home"), "m:main")])
         return ui.kb(rows)
-    rows = [[(f"{e} {n}", f"pvp:new:{k}")] for k, (e, n, _d) in MODES.items()]
-    rows.append([("📋 Açık Düellolar", "pvp:list"), ("🏆 PVP Sıralama", "pvp:top")])
+    rows = [[(f"{e} {n}{fire_tag(k, counts)}", f"pvp:new:{k}")] for k, (e, n, _d) in MODES.items()]
+    rows.append([(i18n.t(lang, "d_list") + (f"  {total}🔥" if total else ""), "pvp:list"),
+                 ("🏆", "pvp:top")])
     return ui.kb(rows)
 
 
@@ -779,20 +832,24 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
 
     lang = i18n.lang_of(user_id)
+    TOASTS = {"menu": "⚔️ Duel", "on": "🌐 Online", "ong": "💵 Bahis seç",
+              "list": "📋 Açık oyunlar", "mine": "📋 İlanların", "top": "🏆",
+              "new": "💵 Bahis seç"}
+    context.user_data["_toast"] = TOASTS.get(action, "")
     if action == "menu":
-        await ui.answer(query)
         private = ui.is_private(update)
-        await ui.nav(query, "duel", pvp_menu_text(user, private), pvp_menu_kb(private, lang))
+        await ui.nav(query, "duel", pvp_menu_text(user, private),
+                     pvp_menu_kb(private, lang, user_id))
     elif action == "on":
-        await ui.answer(query)
-        rows = [[(f"{MODES[g][0]} {MODES[g][1]}", f"pvp:ong:{g}")] for g in ONLINE_GAMES]
+        counts = open_counts()
+        rows = [[(f"{MODES[g][0]} {MODES[g][1]}{fire_tag(g, counts)}", f"pvp:ong:{g}")]
+                for g in ONLINE_GAMES]
         rows.append([(i18n.t(lang, "b_back"), "pvp:menu")])
         await ui.safe_edit(query, (
             f"🌐 <b>{i18n.t(lang, 'd_online')}</b>\n{ui.LINE}\n{ui.header(user)}\n"
             f"{i18n.t(lang, 'g_pick')}"
         ), ui.kb(rows))
     elif action == "ong":
-        await ui.answer(query)
         game = parts[2]
         emoji, name, desc = MODES[game]
         rows = ui.bet_rows(f"pvp:onq:{game}", user)[:-1]
@@ -802,13 +859,10 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             f"{i18n.t(lang, 'g_choose_bet')}"
         ), ui.kb(rows))
     elif action == "onq":
-        await ui.answer(query)
         await queue_join(update, context, parts[2], int(parts[3]))
     elif action == "onc":
-        await ui.answer(query)
         await queue_leave(update, context)
     elif action == "new":
-        await ui.answer(query)
         if ui.is_private(update):
             await ui.answer(query, "Düellolar gruplarda kurulur. Beni bir gruba ekle!", alert=True)
             return
@@ -819,7 +873,6 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             f"{ui.header(user)}\n\nBahsi seç — rakip aynı tutarı yatırır 👇"
         ), ui.kb(ui.bet_rows(f"pvp:mk:{game}", user)[:-1] + [[("⬅️ PVP", "pvp:menu"), ("🏠 Menü", "m:main")]]))
     elif action == "mk":
-        await ui.answer(query)
         await create_duel(update, context, parts[2], int(parts[3]))
     elif action == "acc":
         await accept_duel(update, context, int(parts[2]))
@@ -832,11 +885,29 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     elif action == "box":
         await box_pick(update, context, int(parts[2]), int(parts[3]))
     elif action == "list":
-        await ui.answer(query)
-        await ui.safe_edit(query, open_duels_text(), ui.kb([
-            [("🔄 Yenile", "pvp:list")], [("⚔️ PVP Menü", "pvp:menu")]]))
+        rows = [[(f"{MODES[r['game']][0]} {ui.esc((db.get_user(r['user_id']) or {})['first_name'])[:10]}"
+                  f" • {ui.fmt(r['stake'])} 🪙  ⚔️", f"pvp:onq:{r['game']}:{r['stake']}")]
+                for r in db.all_(
+                    "SELECT * FROM queue WHERE created_ts>? AND user_id<>? ORDER BY stake DESC LIMIT 8",
+                    (ui.now() - QUEUE_TIMEOUT, user_id)) if r["game"] in MODES]
+        rows.append([(i18n.t(lang, "b_refresh"), "pvp:list"),
+                     (i18n.t(lang, "b_back"), "pvp:menu")])
+        await ui.safe_edit(query, open_duels_text(lang), ui.kb(rows))
+    elif action == "mine":
+        mine = db.all_("SELECT * FROM queue WHERE user_id=? ORDER BY id", (user_id,))
+        lines = [f"📋 <b>{i18n.t(lang, 'd_mine')}</b>\n{ui.LINE}"]
+        rows = []
+        for row in mine:
+            emoji, name, _d = MODES.get(row["game"], ("🎮", row["game"], ""))
+            lines.append(f"🔥 {emoji} <b>{name}</b> — {ui.fmt(row['stake'])} 🪙")
+            rows.append([(f"🚫 {emoji} {ui.fmt(row['stake'])}", f"pvp:onc:{row['id']}")])
+        if not mine:
+            lines.append(i18n.t(lang, "d_list_empty"))
+        else:
+            rows.append([(i18n.t(lang, "d_cancel_all"), "pvp:onc")])
+        rows.append([(i18n.t(lang, "b_back"), "pvp:menu")])
+        await ui.safe_edit(query, "\n".join(lines), ui.kb(rows))
     elif action == "top":
-        await ui.answer(query)
         await ui.safe_edit(query, pvp_top_text(), ui.back_kb("pvp:menu"))
 
 
@@ -852,7 +923,9 @@ async def cmd_duel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     args = context.args or []
     user = db.get_user(update.effective_user.id)
     if ui.is_private(update):
-        await ui.send(update, pvp_menu_text(user, True), pvp_menu_kb(True))
+        lang = i18n.lang_of(user["user_id"])
+        await ui.screen(update, "duel", pvp_menu_text(user, True),
+                        pvp_menu_kb(True, lang, user["user_id"]))
         return
     if len(args) >= 2 and args[0].lower() in ALIASES:
         try:
@@ -862,7 +935,8 @@ async def cmd_duel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             return
         await create_duel(update, context, ALIASES[args[0].lower()], stake)
         return
-    rows = [[(f"{e} {n}", f"pvp:new:{k}")] for k, (e, n, _d) in MODES.items()]
+    counts = open_counts()
+    rows = [[(f"{e} {n}{fire_tag(k, counts)}", f"pvp:new:{k}")] for k, (e, n, _d) in MODES.items()]
     rows.append([("📋 Açık Düellolar", "pvp:list")])
     await ui.send(update, (
         "⚔️ <b>DÜELLO KUR</b>\n\n"

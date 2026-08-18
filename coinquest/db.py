@@ -237,10 +237,21 @@ CREATE TABLE IF NOT EXISTS broadcasts (
 );
 
 CREATE TABLE IF NOT EXISTS queue (
-    user_id    INTEGER PRIMARY KEY,
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL,
     game       TEXT NOT NULL,
     stake      INTEGER NOT NULL,
-    created_ts INTEGER NOT NULL DEFAULT 0
+    created_ts INTEGER NOT NULL DEFAULT 0,
+    UNIQUE (user_id, game, stake)
+);
+CREATE INDEX IF NOT EXISTS idx_queue_game ON queue(game, stake);
+
+CREATE TABLE IF NOT EXISTS miners (
+    user_id INTEGER NOT NULL,
+    key     TEXT NOT NULL,
+    qty     INTEGER NOT NULL DEFAULT 0,
+    got_ts  INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, key)
 );
 
 CREATE TABLE IF NOT EXISTS actions (
@@ -288,6 +299,7 @@ EXTRA_USER_COLUMNS = [
     ("ref_paid", "INTEGER NOT NULL DEFAULT 0"),     # davet ödülü verildi mi
     ("wd_currency", "TEXT NOT NULL DEFAULT 'TMT'"), # tercih ettiği para birimi
     ("energy_unlim", "INTEGER NOT NULL DEFAULT 0"), # 1 = sınırsız enerji
+    ("miner_ts", "INTEGER NOT NULL DEFAULT 0"),     # madenlerden son toplama zamanı
 ]
 
 
@@ -300,6 +312,16 @@ EXTRA_TABLE_COLUMNS = {
 
 
 def _migrate() -> None:
+    # eski tek satırlık kuyruk tablosunu yenisiyle değiştir
+    qcols = {row["name"] for row in all_("PRAGMA table_info(queue)")}
+    if qcols and "id" not in qcols:
+        run("DROP TABLE queue")
+        run("""CREATE TABLE queue (
+                   id INTEGER PRIMARY KEY AUTOINCREMENT,
+                   user_id INTEGER NOT NULL, game TEXT NOT NULL,
+                   stake INTEGER NOT NULL, created_ts INTEGER NOT NULL DEFAULT 0,
+                   UNIQUE (user_id, game, stake))""")
+        log.info("Kuyruk tablosu yenilendi (çoklu oyun açma)")
     have = {row["name"] for row in all_("PRAGMA table_info(users)")}
     for name, ddl in EXTRA_USER_COLUMNS:
         if name not in have:

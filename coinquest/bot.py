@@ -22,6 +22,7 @@ import i18n
 import items
 import market
 import media
+import miners
 import party
 import pvp
 import social
@@ -430,6 +431,7 @@ def build_app() -> Application:
     app.add_handler(CommandHandler(["davet", "ref"], social.cmd_ref))
     app.add_handler(CommandHandler(["yardim", "help"], social.cmd_help))
     app.add_handler(CommandHandler(["para", "cek", "cash"], cash.cmd_cash))
+    app.add_handler(CommandHandler(["madenler", "miners", "magdan"], miners.cmd_miners))
     app.add_handler(CommandHandler(["destek", "support", "komek"], support.cmd_support))
     app.add_handler(CommandHandler("admin", admin.cmd_admin))
 
@@ -444,6 +446,7 @@ def build_app() -> Application:
     app.add_handler(CallbackQueryHandler(cb(events.on_callback), pattern=r"^ev:"))
     app.add_handler(CallbackQueryHandler(cb(cash.on_callback), pattern=r"^cash:"))
     app.add_handler(CallbackQueryHandler(cb(support.on_callback), pattern=r"^sup:"))
+    app.add_handler(CallbackQueryHandler(cb(miners.on_callback), pattern=r"^mi:"))
     app.add_handler(CallbackQueryHandler(cb(on_captcha), pattern=r"^cap:"))
     app.add_handler(CallbackQueryHandler(cb(admin.on_callback), pattern=r"^ad:"))
 

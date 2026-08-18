@@ -163,10 +163,31 @@ Yeni oyuncu dil seçiminden sonra matematik sorusu çözer.
 İlk denemede bilirse davet edene **tam ödül** (10.000 🪙),
 2-3. denemede bilirse **yarım ödül**, daha fazlasında ödül yok.
 
+## ⛏ Madenciler
+15 kademeli pasif gelir sistemi (`miners.py`). Coin ile alınır, her madencinin
+bir **gücü** vardır ve gücü kadar **4 saatte bir** coin üretir.
+Aynı madenciden birden fazla alınabilir; kasa en fazla 6 döngü (24 saat) biriktirir.
+Hepsi kendini ~22 saatte amorti eder.
+
+| # | Madenci | Fiyat | 4 saatlik güç | Seviye |
+|---|---|---|---|---|
+| 1 | ⛏ El Kazması | 5.000 | 900 | 1 |
+| 5 | 💠 Elmas Delici | 350.000 | 62.000 | 8 |
+| 10 | 🏭 Yeraltı Fabrikası | 40.000.000 | 7.200.000 | 22 |
+| 15 | 🌟 Yıldız Fabrikası | 5.000.000.000 | 900.000.000 | 40 |
+
+Tam liste `miners.py` → `MINERS`. Yeni kademe eklemek için listeye bir satır ekle.
+Görseller: `images/miner_m01.jpg` … `miner_m15.jpg` ve genel ekran için `images/madenler.jpg`.
+
 ## 🌐 Online düello (grup gerekmez)
 ⚔️ Düello → 🌐 Online rakip bul → oyun + bahis seç → bot rakip eşleştirir.
 Taş-kağıt-makas, emoji zar, arena, gizemli kutu online oynanır;
 XOX ve açık lobi gruplarda devam eder. Rakip 10 dakikada bulunmazsa bahis iade edilir.
+
+Herkes aynı anda **5 ilana kadar** oyun açabilir (farklı oyun/bahis); eşleşen ikili
+otomatik savaşır, diğer ilanlar bozulmadan bekler. Oyun düğmelerinde bekleyen ilan
+sayısı ateşle gösterilir: `🎲 Emoji Zar  2🔥`. **📋 Açık oyunlar** ekranından
+başkasının ilanına tek tuşla katılınır, **📋 İlanlarım** ekranından tek tek iptal edilir.
 
 ---
 
