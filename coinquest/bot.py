@@ -23,11 +23,13 @@ import items
 import market
 import media
 import miners
+import notify
 import party
 import pvp
 import social
 import support
 import ui
+import war
 
 logging.basicConfig(
     format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
@@ -51,6 +53,9 @@ def main_menu_text(user) -> str:
                 if not q["claimed"] and q["progress"] >= q["target"])
     if ready:
         extra += "\n" + i18n.t(lang, "menu_quest", n=ready)
+    left = war.seconds_left()
+    if 0 < left < 36 * 3600:            # sadece sezonun son 36 saatinde göster
+        extra += "\n" + i18n.t(lang, "menu_war", time=ui.dur(left))
     return (
         f"🏰 <b>COINQUEST</b>\n{ui.LINE}\n"
         f"{i18n.t(lang, 'menu_hi', name=ui.name_of(user))}\n"
@@ -70,6 +75,8 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     existed = db.get_user(tg_user.id) is not None
     user = db.ensure_user(tg_user, referrer)
+    if existed and user is not None and user["notify_on"] == 2:
+        db.upd(tg_user.id, notify_on=1)     # engeli kaldırmış, bildirimlere geri alalım
     if not existed:
         db.upd(tg_user.id, title=economy.title_for(1))
         # davet ödülü bot koruması geçilince verilir (bkz. on_captcha)
@@ -433,6 +440,8 @@ def build_app() -> Application:
     app.add_handler(CommandHandler(["para", "cek", "cash"], cash.cmd_cash))
     app.add_handler(CommandHandler(["madenler", "miners", "magdan"], miners.cmd_miners))
     app.add_handler(CommandHandler(["destek", "support", "komek"], support.cmd_support))
+    app.add_handler(CommandHandler(["savas", "war", "sezon"], war.cmd_war))
+    app.add_handler(CommandHandler(["bildirim", "habar"], notify.cmd_notify))
     app.add_handler(CommandHandler("admin", admin.cmd_admin))
 
     # callback yönlendirmeleri
@@ -449,6 +458,8 @@ def build_app() -> Application:
     app.add_handler(CallbackQueryHandler(cb(miners.on_callback), pattern=r"^mi:"))
     app.add_handler(CallbackQueryHandler(cb(on_captcha), pattern=r"^cap:"))
     app.add_handler(CallbackQueryHandler(cb(admin.on_callback), pattern=r"^ad:"))
+    app.add_handler(CallbackQueryHandler(cb(war.on_callback), pattern=r"^w:"))
+    app.add_handler(CallbackQueryHandler(cb(notify.on_callback), pattern=r"^nt:"))
 
     # yazı + medya (destek ve reklam için)
     media_filter = (filters.TEXT | filters.PHOTO | filters.VIDEO | filters.ANIMATION
@@ -468,6 +479,8 @@ def build_app() -> Application:
         jq.run_repeating(pvp.job_cleanup, interval=300, first=120)
         jq.run_repeating(pvp.job_queue_clean, interval=120, first=60)
         jq.run_repeating(miners.job_notify, interval=300, first=180)
+        jq.run_repeating(war.job_tick, interval=300, first=45)
+        jq.run_repeating(notify.job_scan, interval=900, first=240)
     else:
         log.warning("JobQueue yok: pip install 'python-telegram-bot[job-queue]'")
     return app

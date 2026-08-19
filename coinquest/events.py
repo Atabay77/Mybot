@@ -16,6 +16,7 @@ import economy
 import i18n
 import items
 import ui
+import war
 
 log = logging.getLogger(__name__)
 
@@ -85,6 +86,9 @@ def track(user_id: int, key: str, amount: int = 1) -> None:
         )
     except Exception as exc:  # görev takibi asla oyunu bozmamalı
         log.warning("görev takibi hatası: %s", exc)
+    # Aynı olay klan savaşı puanını da besler. war.add kendi hatasını yutar,
+    # bu yüzden görev hatası puanı engellemesin diye try'ın DIŞINDA duruyor.
+    war.add(user_id, key, amount)
 
 
 def claim_quests(user_id: int) -> tuple[int, int]:
@@ -103,6 +107,7 @@ def claim_quests(user_id: int) -> tuple[int, int]:
     if total:
         economy.add_coins(user_id, total, "görev ödülü")
         economy.add_xp(user_id, 40 * count)
+        war.add(user_id, "quest", count)
         if count >= 3:
             economy.add_gems(user_id, 2, "tüm görevler")
     return total, count

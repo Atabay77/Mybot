@@ -15,6 +15,7 @@ import events
 import i18n
 import items
 import ui
+import war
 
 CLAN_COST = 75_000
 
@@ -114,6 +115,7 @@ def daily(user_id: int) -> str:
         economy.add_gems(user_id, gems, "günlük seri bonusu")
     economy.add_xp(user_id, 50)
     economy.add_energy(user_id, 10)
+    war.add(user_id, "daily")
     surprise = ""
     if economy.roll(0.25):
         drop = random.choice(["c_energy", "c_clover", "c_potion", "c_scroll"])
@@ -329,8 +331,11 @@ def clan_text(user_id: int) -> str:
     top_rank = int(db.scalar(
         "SELECT COUNT(*)+1 FROM clans WHERE level > ? OR (level = ? AND treasury > ?)",
         (clan["level"], clan["level"], clan["treasury"])))
+    war_pts = war.clan_points(clan["id"])
+    war_rank = war.clan_rank(clan["id"])
     lines = [
-        f"{clan['emblem']} <b>{ui.esc(clan['name'])}</b>",
+        f"{clan['emblem']} <b>{ui.esc(clan['name'])}</b>"
+        + (f"   🏆×{clan['wins']}" if clan["wins"] else ""),
         f"<i>{ui.esc(clan['motto'] or 'Şeref ve altın!')}</i>",
         ui.LINE,
         f"<blockquote>🎚 Seviye <b>{clan['level']}</b>   🏆 Sıra <b>#{top_rank}</b>\n"
@@ -340,6 +345,9 @@ def clan_text(user_id: int) -> str:
         f"👥 Üye: <b>{member_count(clan['id'])}</b> / {member_limit(clan)}\n"
         f"🚪 Katılım: <b>{'herkese açık' if clan['open_join'] else 'istekle'}</b>"
         + (f"  (min Sv.{clan['min_level']})" if clan["min_level"] > 1 else "") + "</blockquote>",
+        f"<blockquote>⚔️ Savaş sırası: <b>#{war_rank or '-'}</b>   "
+        f"⭐ <b>{ui.fmt(war_pts)}</b> puan\n"
+        f"⏳ Sezona kalan: {ui.dur(war.seconds_left())}</blockquote>",
         clan_perks(clan),
         f"\n{ROLE_ICON.get(role, '•')} Senin rolün: <b>{ROLE_NAME.get(role, 'Üye')}</b>",
     ]
@@ -352,12 +360,14 @@ def clan_kb(user_id: int):
     clan = clan_of(user_id)
     if not clan:
         return ui.kb([
+            [("⚔️ KLAN SAVAŞI", "w:menu")],
             [("📋 Klan Listesi", "s:clist:0")],
             [("➕ Klan Kur", "s:ccreate")],
             [("🏆 Klan Sıralaması", "s:top:clan")],
             [("🏠 Ana menü", "m:main")],
         ])
-    rows = [[("💰 Kasaya Bağış", "s:cdonate"), ("👥 Üyeler", "s:cmem:0")]]
+    rows = [[("⚔️ KLAN SAVAŞI", "w:menu")],
+            [("💰 Kasaya Bağış", "s:cdonate"), ("👥 Üyeler", "s:cmem:0")]]
     if can_manage(user_id):
         reqs = int(db.scalar("SELECT COUNT(*) FROM clan_requests WHERE clan_id=?", (clan["id"],)))
         rows.append([(f"🔔 Katılma İstekleri{f'  ({reqs})' if reqs else ''}", "s:creqs")])
@@ -723,6 +733,7 @@ def clan_donate(user_id: int, amount) -> str:
     before = clan["level"]
     economy.clan_add_xp(clan["id"], amount // 100)
     economy.add_xp(user_id, amount // 500)
+    war.add(user_id, "donate", amount)
     after = db.one("SELECT level FROM clans WHERE id=?", (clan["id"],))["level"]
     extra = f"\n\n🎉 <b>KLAN SEVİYE ATLADI: {after}!</b>" if after > before else ""
     return (f"💰 Klan kasasına <b>{ui.fmt(amount)}</b> 🪙 bağışladın!\n"
@@ -775,6 +786,7 @@ def top_text(kind: str = "rich") -> str:
 
 def top_kb():
     return ui.kb([
+        [("🔥 Haftalık Oyuncu", "w:top:p:0"), ("⚔️ Klan Savaşı", "w:top:c:0")],
         [("💰 Zengin", "s:top:rich"), ("🎚 Seviye", "s:top:level")],
         [("⚔️ PVP", "s:top:pvp"), ("💥 Vuruş", "s:top:win")],
         [("🎮 Oyun", "s:top:games"), ("🐉 Boss", "s:top:boss")],
@@ -823,6 +835,7 @@ def grant_referral(new_user_id: int, referrer_id: int, factor: float = 1.0) -> N
     if reward > 0:
         economy.add_coins(referrer_id, reward, "davet ödülü")
     economy.add_coins(new_user_id, config.REF_REWARD_NEW, "davet bonusu")
+    war.add(referrer_id, "ref")
     db.log_action(referrer_id, "referral", f"{new_user_id} x{factor}")
 
 

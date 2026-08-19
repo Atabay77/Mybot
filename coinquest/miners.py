@@ -2,7 +2,7 @@
 """Madenci sistemi.
 
 Oyuncu coin ile madenci satın alır. Her madencinin bir GÜCÜ vardır ve
-gücü kadar 4 saatte bir coin üretir. Kasa en fazla 6 döngü (24 saat) biriktirir,
+gücü kadar 4 saatte bir coin üretir. Kasa en fazla 20 döngü (80 saat) biriktirir,
 yani düzenli toplamak gerekir.
 
 Yeni madenci eklemek için MINERS listesine satır eklemen yeterli.
@@ -16,7 +16,9 @@ import config
 import db
 import economy
 import i18n
+import notify
 import ui
+import war
 
 log = logging.getLogger(__name__)
 
@@ -132,6 +134,7 @@ def collect(user_id: int) -> str:
     db.upd(user_id, miner_ts=ui.now(), miner_notify=0)
     economy.add_coins(user_id, amount, "madenci geliri")
     economy.add_xp(user_id, 15 * cycles)
+    war.add(user_id, "miner")
     return i18n.t(lang, "mn_got", amount=ui.fmt(amount), cycles=cycles)
 
 
@@ -344,15 +347,15 @@ async def job_notify(context: ContextTypes.DEFAULT_TYPE) -> None:
         if cycles < 1:
             continue
         lang = i18n.lang_of(uid)
-        db.upd(uid, miner_notify=1)
-        try:
-            await context.bot.send_message(
-                uid, i18n.t(lang, "mn_alert", amount=ui.fmt(int(amount))),
-                parse_mode="HTML",
-                reply_markup=ui.kb([[(i18n.t(lang, "mn_collect"), "mi:collect")],
-                                    [(i18n.t(lang, "b_miners"), "mi:menu:0")]]))
-        except Exception:
-            continue
+        # Ortak bildirim kapısından geçer: günlük kota, sessiz saat ve
+        # 'botu engelledi' kuralları madenci bildirimine de uygulanır.
+        # Bayrak SADECE mesaj gerçekten gittiyse yakılır.
+        sent = await notify.send(
+            context, uid, "miner",
+            i18n.t(lang, "mn_alert", amount=ui.fmt(int(amount))),
+            extra_rows=[[(i18n.t(lang, "b_miners"), "mi:menu:0")]])
+        if sent:
+            db.upd(uid, miner_notify=1)
 
 
 async def cmd_miners(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

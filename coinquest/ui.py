@@ -85,9 +85,10 @@ def main_menu_kb(lang: str = i18n.DEFAULT, user_id: int = 0) -> InlineKeyboardMa
     rows = [
         [(i18n.t(lang, "b_play"), "g:menu"), (i18n.t(lang, "b_money"), "cash:menu")],
         [(i18n.t(lang, "b_gift"), "s:daily"), (i18n.t(lang, "b_shop"), "mk:menu")],
-        [(i18n.t(lang, "b_duel"), "pvp:menu"), (i18n.t(lang, "b_boss"), "ev:boss")],
+        [(i18n.t(lang, "b_duel"), "pvp:menu"), (i18n.t(lang, "b_boss"), "ev:boss"),
+         (i18n.t(lang, "b_lottery"), "ev:lottery")],
         [(i18n.t(lang, "b_miners"), "mi:menu:0"), (i18n.t(lang, "b_bank"), "s:bank")],
-        [(i18n.t(lang, "b_clan"), "s:clan"), (i18n.t(lang, "b_lottery"), "ev:lottery")],
+        [(i18n.t(lang, "b_clan"), "s:clan"), (i18n.t(lang, "b_war"), "w:menu")],
         [(i18n.t(lang, "b_bazaar"), "mk:bazaar"), (i18n.t(lang, "b_items"), "mk:inv")],
         [(i18n.t(lang, "b_profile"), "s:profile"), (i18n.t(lang, "b_top"), "s:top")],
         [(i18n.t(lang, "b_quests"), "ev:quests"), (i18n.t(lang, "b_friends"), "s:ref")],
@@ -101,7 +102,8 @@ def main_menu_kb(lang: str = i18n.DEFAULT, user_id: int = 0) -> InlineKeyboardMa
 def more_menu_kb(lang: str = i18n.DEFAULT) -> InlineKeyboardMarkup:
     return kb([
         [(i18n.t(lang, "b_biz"), "mk:biz"), (i18n.t(lang, "b_support"), "sup:menu")],
-        [(i18n.t(lang, "b_help"), "s:help"), (i18n.t(lang, "b_lang"), "m:lang")],
+        [(i18n.t(lang, "b_notify"), "nt:menu"), (i18n.t(lang, "b_help"), "s:help")],
+        [(i18n.t(lang, "b_lang"), "m:lang")],
         [(i18n.t(lang, "b_home"), "m:main")],
     ])
 

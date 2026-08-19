@@ -83,6 +83,25 @@ USDT_ENABLED = os.environ.get("USDT_ENABLED", "1") != "0"
 TMT_PER_USDT = float(os.environ.get("TMT_PER_USDT", "19.65"))   # 1 USDT kaç TMT
 CRYPTOBOT_NAME = os.environ.get("CRYPTOBOT_NAME", "@CryptoBot")
 
+# --- KLAN SAVAŞI / HAFTALIK SEZON ---
+# Sezon pazartesi 00:00'da (Aşgabat, UTC+5) döner. Ödüller bu saatten sonra dağıtılır.
+WAR_SETTLE_HOUR = 9        # kapanış bu saatten önce yapılmaz (gece DM yağmasın)
+WAR_STALE_DAYS = 21        # bu kadar eski hafta ödemesiz kapatılır (bot uzun süre kapalıysa)
+# Haftalık gerçek para ödülleri (kuruş: 100 = 1 TMT). 0 yazarsan TMT ödülü kapanır.
+WAR_TMT_1 = 100            # sezon birincisi     -> 1.00 TMT
+WAR_TMT_2 = 50             # ikinci              -> 0.50 TMT
+WAR_TMT_3 = 25             # üçüncü              -> 0.25 TMT
+WAR_TMT_CLAN = 75          # şampiyon klan lideri-> 0.75 TMT
+# Toplam: haftada 2.50 TMT
+
+# --- GERİ ÇAĞIRMA BİLDİRİMLERİ ---
+NOTIFY_MAX_PER_DAY = 3      # bir oyuncuya günde en fazla kaç bildirim
+NOTIFY_MIN_GAP = 4 * 3600   # iki bildirim arası en az süre
+NOTIFY_QUIET_START = 23     # 23:00 - 09:00 arası (Aşgabat) hiç bildirim yok
+NOTIFY_QUIET_END = 9
+NOTIFY_MAX_PER_PASS = 200   # bir taramada en fazla kaç mesaj (Telegram flood koruması)
+NOTIFY_PACE = 0.06          # mesajlar arası bekleme (~17 mesaj/sn, limit 30)
+
 # Davet ödülü (elmas yok, sadece coin)
 REF_REWARD_COINS = 10_000
 REF_REWARD_NEW = 5_000          # davet edilene verilen

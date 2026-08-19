@@ -280,6 +280,48 @@ CREATE TABLE IF NOT EXISTS groups (
     title    TEXT DEFAULT '',
     added_ts INTEGER NOT NULL DEFAULT 0
 );
+
+-- ---------------------------------------------------------------- KLAN SAVAŞI
+-- Kişisel haftalık sezon puanı (klan değişse de oyuncuda kalır)
+CREATE TABLE IF NOT EXISTS war_points (
+    week    TEXT NOT NULL,
+    user_id INTEGER NOT NULL,
+    points  INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (week, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_war_points ON war_points(week, points);
+
+-- Klan savaşı: her puan KAZANILDIĞI ANDAKİ klana yazılır.
+-- Böylece klan atlayarak puan taşınamaz, katkı listesi de bedavaya gelir.
+CREATE TABLE IF NOT EXISTS war_clan (
+    week    TEXT NOT NULL,
+    clan_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    points  INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (week, clan_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_war_clan ON war_clan(week, clan_id, points);
+
+-- Günlük tavan defteri (puan çiftçiliğini engeller)
+CREATE TABLE IF NOT EXISTS war_daily (
+    day     TEXT NOT NULL,
+    user_id INTEGER NOT NULL,
+    src     TEXT NOT NULL,
+    points  INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (day, user_id, src)
+);
+
+-- Kapanmış sezonlar (settled=1 ödemeden ÖNCE yazılır -> çift ödeme olamaz)
+CREATE TABLE IF NOT EXISTS war_season (
+    week     TEXT PRIMARY KEY,
+    settled  INTEGER NOT NULL DEFAULT 0,
+    ended_ts INTEGER NOT NULL DEFAULT 0,
+    players  INTEGER NOT NULL DEFAULT 0,
+    top_user INTEGER NOT NULL DEFAULT 0,
+    top_clan INTEGER NOT NULL DEFAULT 0,
+    payout   INTEGER NOT NULL DEFAULT 0,
+    summary  TEXT NOT NULL DEFAULT ''
+);
 """
 
 
@@ -308,6 +350,14 @@ EXTRA_USER_COLUMNS = [
     ("energy_unlim", "INTEGER NOT NULL DEFAULT 0"), # 1 = sınırsız enerji
     ("miner_ts", "INTEGER NOT NULL DEFAULT 0"),     # madenlerden son toplama zamanı
     ("miner_notify", "INTEGER NOT NULL DEFAULT 0"), # 'kasan doldu' bildirimi gitti mi
+    # --- geri çağırma bildirimleri ---
+    ("notify_on", "INTEGER NOT NULL DEFAULT 1"),    # 0=oyuncu kapattı, 1=açık, 2=botu engelledi
+    ("notify_day", "TEXT NOT NULL DEFAULT ''"),     # sayaç günü (UTC+5)
+    ("notify_count", "INTEGER NOT NULL DEFAULT 0"), # o gün gönderilen bildirim adedi
+    ("notify_last", "INTEGER NOT NULL DEFAULT 0"),  # son bildirimin zamanı
+    ("notify_sent", "TEXT NOT NULL DEFAULT ''"),    # o gün gönderilen türler
+    ("notify_back", "INTEGER NOT NULL DEFAULT 0"),  # 'geri dön' teklifinin zamanı
+    ("notify_gift", "INTEGER NOT NULL DEFAULT 0"),  # geri dönüş hediyesinin alındığı an
 ]
 
 

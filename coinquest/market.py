@@ -14,6 +14,7 @@ import events
 import i18n
 import items
 import ui
+import war
 
 CATS = [
     ("weapon", "⚔️ Silahlar"),
@@ -554,6 +555,7 @@ def biz_collect(user_id: int) -> str:
     db.upd(user_id, business_ts=ui.now())
     economy.add_coins(user_id, total, "işletme geliri")
     economy.add_xp(user_id, 20 * int(cycles))
+    war.add(user_id, "biz")
     return f"💰 {item['emoji']} {item['name']} kasası: <b>+{ui.fmt(total)}</b> 🪙 ({cycles} döngü)"
 
 
