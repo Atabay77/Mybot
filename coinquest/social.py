@@ -45,7 +45,9 @@ def profile_text(user_id: int) -> str:
     winrate = (user["wins"] / max(1, user["wins"] + user["losses"])) * 100
 
     lines = [
-        f"👤 <b>{ui.name_of(user)}</b>",
+        f"👤 <b>{ui.name_of(user)}</b>"
+        + (f"  @{ui.esc(user['username'])}" if user["username"] else ""),
+        f"🆔 <code>{user_id}</code>",
         f"<i>{ui.esc(user['title'] or economy.title_for(user['level']))}</i>  •  🏅 #{rank}",
         ui.LINE,
         f"<blockquote>🎚 <b>Seviye {user['level']}</b>\n"
@@ -269,64 +271,388 @@ def rob(robber_id: int, target_name: str) -> str:
 # KLANLAR
 # ---------------------------------------------------------------------------
 
-def clan_text(user_id: int) -> str:
-    user = db.get_user(user_id)
-    if not user["clan_id"]:
-        top = db.all_(
-            "SELECT c.*, (SELECT COUNT(*) FROM clan_members m WHERE m.clan_id=c.id) AS cnt "
-            "FROM clans c ORDER BY c.level DESC, c.treasury DESC LIMIT 8")
-        lines = [
-            "🏰 <b>KLANLAR</b>",
-            "<i>Klan üyeleri tüm kazançlarda bonus alır (klan seviyesi x %2).</i>",
-            "",
-            f"Klan kurmak: {ui.fmt(CLAN_COST)} 🪙",
-            "",
-            "<b>En güçlü klanlar</b>",
-        ]
-        for clan in top:
-            lines.append(f"🏰 <b>{ui.esc(clan['name'])}</b> — Sv.{clan['level']} • "
-                         f"{clan['cnt']} üye • kasa {ui.fmt(clan['treasury'])} 🪙")
-        if not top:
-            lines.append("Henüz klan yok — ilkini sen kur!")
-        lines.append("\nKatılmak için aşağıdaki listeden seç 👇")
-        return "\n".join(lines)
+def _plain(text: str) -> str:
+    for tag in ("<b>", "</b>", "<i>", "</i>", "<blockquote>", "</blockquote>"):
+        text = text.replace(tag, "")
+    return text
 
-    clan = db.one("SELECT * FROM clans WHERE id=?", (user["clan_id"],))
-    members = db.all_(
-        "SELECT m.*, u.first_name, u.level FROM clan_members m JOIN users u ON u.user_id=m.user_id "
-        "WHERE m.clan_id=? ORDER BY m.contributed DESC LIMIT 15", (user["clan_id"],))
+
+ROLE_ICON = {"lider": "👑", "yonetici": "⭐", "uye": "•"}
+ROLE_NAME = {"lider": "Lider", "yonetici": "Yönetici", "uye": "Üye"}
+EMBLEMS = ["🏰", "🐉", "⚔️", "🦅", "🐺", "🔥", "⭐", "💎", "👑", "🛡", "🌙", "☠️"]
+CLAN_PAGE = 8
+
+
+def clan_of(user_id: int):
+    user = db.get_user(user_id)
+    if not user or not user["clan_id"]:
+        return None
+    return db.one("SELECT * FROM clans WHERE id=?", (user["clan_id"],))
+
+
+def my_role(user_id: int) -> str:
+    row = db.one("SELECT role FROM clan_members WHERE user_id=?", (user_id,))
+    return row["role"] if row else ""
+
+
+def can_manage(user_id: int) -> bool:
+    return my_role(user_id) in ("lider", "yonetici")
+
+
+def member_count(clan_id: int) -> int:
+    return int(db.scalar("SELECT COUNT(*) FROM clan_members WHERE clan_id=?", (clan_id,)))
+
+
+def member_limit(clan) -> int:
+    return 20 + clan["level"] * 2
+
+
+def clan_perks(clan) -> str:
+    return (f"💰 Kazanç bonusu: <b>+%{min(20, clan['level'] * 2)}</b>\n"
+            f"👥 Üye kontenjanı: <b>{member_limit(clan)}</b>")
+
+
+# ---------------------------------------------------------------------------
+# KLAN — ANA EKRAN
+# ---------------------------------------------------------------------------
+
+def clan_text(user_id: int) -> str:
+    clan = clan_of(user_id)
+    if not clan:
+        return ("🏰 <b>KLANLAR</b>\n" + ui.LINE + "\n"
+                "<blockquote>Klan = takım. Üyeler her kazançta bonus alır, "
+                "birlikte kasa büyütür, sıralamada yarışır.</blockquote>\n"
+                f"💰 Klan kurma bedeli: <b>{ui.fmt(CLAN_COST)}</b> 🪙  (Seviye 8)\n\n"
+                "Aşağıdan bir klana katıl ya da kendi klanını kur 👇")
+    role = my_role(user_id)
+    reqs = int(db.scalar("SELECT COUNT(*) FROM clan_requests WHERE clan_id=?", (clan["id"],)))
+    top_rank = int(db.scalar(
+        "SELECT COUNT(*)+1 FROM clans WHERE level > ? OR (level = ? AND treasury > ?)",
+        (clan["level"], clan["level"], clan["treasury"])))
     lines = [
-        f"🏰 <b>{ui.esc(clan['name'])}</b>  (Seviye {clan['level']})",
+        f"{clan['emblem']} <b>{ui.esc(clan['name'])}</b>",
         f"<i>{ui.esc(clan['motto'] or 'Şeref ve altın!')}</i>",
-        "",
-        f"💰 Kasa: <b>{ui.fmt(clan['treasury'])}</b> 🪙",
-        f"✨ Klan XP: {ui.fmt(clan['xp'])} / {ui.fmt(5000 * clan['level'])}",
-        f"🎁 Üye bonusu: +%{int(economy.clan_bonus(user) * 100)} kazanç",
-        f"👥 Üyeler ({len(members)}):",
+        ui.LINE,
+        f"<blockquote>🎚 Seviye <b>{clan['level']}</b>   🏆 Sıra <b>#{top_rank}</b>\n"
+        f"{ui.bar(clan['xp'], 5000 * clan['level'], 12)}\n"
+        f"{ui.fmt(clan['xp'])} / {ui.fmt(5000 * clan['level'])} klan XP</blockquote>",
+        f"<blockquote>💰 Kasa: <b>{ui.fmt(clan['treasury'])}</b> 🪙\n"
+        f"👥 Üye: <b>{member_count(clan['id'])}</b> / {member_limit(clan)}\n"
+        f"🚪 Katılım: <b>{'herkese açık' if clan['open_join'] else 'istekle'}</b>"
+        + (f"  (min Sv.{clan['min_level']})" if clan["min_level"] > 1 else "") + "</blockquote>",
+        clan_perks(clan),
+        f"\n{ROLE_ICON.get(role, '•')} Senin rolün: <b>{ROLE_NAME.get(role, 'Üye')}</b>",
     ]
-    for member in members:
-        role = {"lider": "👑", "yonetici": "⭐", "uye": "•"}.get(member["role"], "•")
-        lines.append(f"{role} {ui.esc(member['first_name'])} (Sv.{member['level']}) — "
-                     f"bağış {ui.fmt(member['contributed'])} 🪙")
-    lines.append("\n<i>Bağış yaptıkça klan seviyesi ve herkesin bonusu artar.</i>")
+    if reqs and can_manage(user_id):
+        lines.append(f"\n🔔 <b>{reqs} katılma isteği bekliyor!</b>")
     return "\n".join(lines)
 
 
 def clan_kb(user_id: int):
-    user = db.get_user(user_id)
-    if not user["clan_id"]:
-        clans = db.all_("SELECT * FROM clans WHERE open_join=1 ORDER BY level DESC LIMIT 6")
-        rows = [[(f"🏰 {c['name'][:18]} (Sv.{c['level']})", f"s:cjoin:{c['id']}")] for c in clans]
-        rows.append([("➕ Klan Kur", "s:ccreate")])
-        rows.append([("🏠 Menü", "m:main")])
-        return ui.kb(rows)
-    return ui.kb([
-        [("💰 Bağış Yap", "s:cdonate")],
-        [("🚪 Klandan Ayrıl", "s:cleave")],
-        [("🏆 Klan Sıralaması", "s:top:clan")],
-        [("🏠 Menü", "m:main")],
-    ])
+    clan = clan_of(user_id)
+    if not clan:
+        return ui.kb([
+            [("📋 Klan Listesi", "s:clist:0")],
+            [("➕ Klan Kur", "s:ccreate")],
+            [("🏆 Klan Sıralaması", "s:top:clan")],
+            [("🏠 Ana menü", "m:main")],
+        ])
+    rows = [[("💰 Kasaya Bağış", "s:cdonate"), ("👥 Üyeler", "s:cmem:0")]]
+    if can_manage(user_id):
+        reqs = int(db.scalar("SELECT COUNT(*) FROM clan_requests WHERE clan_id=?", (clan["id"],)))
+        rows.append([(f"🔔 Katılma İstekleri{f'  ({reqs})' if reqs else ''}", "s:creqs")])
+    if my_role(user_id) == "lider":
+        rows.append([("⚙️ Klan Ayarları", "s:cset")])
+    rows.append([("🏆 Klan Sıralaması", "s:top:clan")])
+    rows.append([("🚪 Klandan Ayrıl", "s:cleave"), ("🏠 Ana menü", "m:main")])
+    return ui.kb(rows)
 
+
+# ---------------------------------------------------------------------------
+# KLAN LİSTESİ / KATILMA
+# ---------------------------------------------------------------------------
+
+def clan_list_text(page: int = 0) -> str:
+    rows = db.all_("SELECT * FROM clans ORDER BY level DESC, treasury DESC "
+                   f"LIMIT {CLAN_PAGE} OFFSET {page * CLAN_PAGE}")
+    total = int(db.scalar("SELECT COUNT(*) FROM clans"))
+    lines = [f"📋 <b>KLAN LİSTESİ</b>\n{ui.LINE}",
+             f"<i>Toplam {total} klan. Açık olana direkt katılırsın, "
+             f"kapalı olana istek gönderirsin.</i>\n"]
+    for clan in rows:
+        lines.append(
+            f"{clan['emblem']} <b>{ui.esc(clan['name'])}</b>  Sv.{clan['level']}\n"
+            f"<blockquote>👥 {member_count(clan['id'])}/{member_limit(clan)}   "
+            f"💰 {ui.fmt(clan['treasury'])} 🪙\n"
+            f"{'🔓 Herkese açık' if clan['open_join'] else '🔒 İstekle'}"
+            + (f"  •  min Sv.{clan['min_level']}" if clan["min_level"] > 1 else "")
+            + "</blockquote>")
+    if not rows:
+        lines.append("Henüz klan yok — ilkini sen kur! 👑")
+    return "\n".join(lines)
+
+
+def clan_list_kb(user_id: int, page: int = 0):
+    rows_db = db.all_("SELECT * FROM clans ORDER BY level DESC, treasury DESC "
+                      f"LIMIT {CLAN_PAGE} OFFSET {page * CLAN_PAGE}")
+    total = int(db.scalar("SELECT COUNT(*) FROM clans"))
+    rows = []
+    for clan in rows_db:
+        pending = db.one("SELECT 1 FROM clan_requests WHERE clan_id=? AND user_id=?",
+                         (clan["id"], user_id))
+        if pending:
+            rows.append([(f"⏳ {clan['name'][:16]} — istek gönderildi", f"s:ccancel:{clan['id']}")])
+        elif clan["open_join"]:
+            rows.append([(f"🔓 {clan['emblem']} {clan['name'][:16]} — Katıl", f"s:cjoin:{clan['id']}")])
+        else:
+            rows.append([(f"🔒 {clan['emblem']} {clan['name'][:16]} — İstek gönder",
+                          f"s:cjoin:{clan['id']}")])
+    nav = []
+    if page > 0:
+        nav.append(("⬅️", f"s:clist:{page - 1}"))
+    if (page + 1) * CLAN_PAGE < total:
+        nav.append(("➡️", f"s:clist:{page + 1}"))
+    if nav:
+        rows.append(nav)
+    rows.append([("➕ Klan Kur", "s:ccreate"), ("⬅️ Geri", "s:clan")])
+    return ui.kb(rows)
+
+
+def clan_join(user_id: int, clan_id: int) -> str:
+    user = db.get_user(user_id)
+    if user["clan_id"]:
+        return "Zaten bir klandasın. Önce ayrılman gerekir."
+    clan = db.one("SELECT * FROM clans WHERE id=?", (clan_id,))
+    if not clan:
+        return "Klan bulunamadı."
+    if user["level"] < clan["min_level"]:
+        return f"🔒 Bu klan en az Seviye {clan['min_level']} istiyor (sen Sv.{user['level']})."
+    if member_count(clan_id) >= member_limit(clan):
+        return "👥 Klan kontenjanı dolu."
+    if not clan["open_join"]:
+        db.run("INSERT OR IGNORE INTO clan_requests (clan_id, user_id, ts) VALUES (?,?,?)",
+               (clan_id, user_id, ui.now()))
+        return f"📨 <b>{ui.esc(clan['name'])}</b> klanına katılma isteğin gönderildi.\nLider onaylayınca gireceksin."
+    db.run("INSERT OR REPLACE INTO clan_members (clan_id, user_id, role, joined_ts) "
+           "VALUES (?,?, 'uye', ?)", (clan_id, user_id, ui.now()))
+    db.upd(user_id, clan_id=clan_id)
+    db.run("DELETE FROM clan_requests WHERE user_id=?", (user_id,))
+    return f"🏰 <b>{ui.esc(clan['name'])}</b> klanına katıldın!"
+
+
+def clan_cancel_request(user_id: int, clan_id: int) -> str:
+    db.run("DELETE FROM clan_requests WHERE clan_id=? AND user_id=?", (clan_id, user_id))
+    return "🚫 İstek geri çekildi."
+
+
+# ---------------------------------------------------------------------------
+# İSTEKLER (lider/yönetici)
+# ---------------------------------------------------------------------------
+
+def requests_text(user_id: int) -> str:
+    clan = clan_of(user_id)
+    if not clan:
+        return "Klanda değilsin."
+    rows = db.all_("SELECT r.*, u.first_name, u.level, u.games FROM clan_requests r "
+                   "JOIN users u ON u.user_id=r.user_id WHERE r.clan_id=? ORDER BY r.ts",
+                   (clan["id"],))
+    lines = [f"🔔 <b>KATILMA İSTEKLERİ</b>\n{ui.LINE}"]
+    if not rows:
+        lines.append("Bekleyen istek yok 👌\n\n"
+                     "<i>Klan ayarlarından katılımı 'herkese açık' yaparsan "
+                     "istek beklemeden girerler.</i>")
+    for row in rows:
+        lines.append(f"👤 <b>{ui.esc(row['first_name'])}</b>\n"
+                     f"<blockquote>🎚 Seviye {row['level']}  •  🎮 {ui.fmt(row['games'])} oyun</blockquote>")
+    return "\n".join(lines)
+
+
+def requests_kb(user_id: int):
+    clan = clan_of(user_id)
+    rows = []
+    if clan:
+        for row in db.all_("SELECT r.*, u.first_name FROM clan_requests r "
+                           "JOIN users u ON u.user_id=r.user_id WHERE r.clan_id=? LIMIT 10",
+                           (clan["id"],)):
+            rows.append([(f"✅ {row['first_name'][:12]}", f"s:cok:{row['user_id']}"),
+                         ("❌", f"s:cno:{row['user_id']}")])
+    rows.append([("🔄 Yenile", "s:creqs"), ("⬅️ Geri", "s:clan")])
+    return ui.kb(rows)
+
+
+def approve_request(leader_id: int, target_id: int, ok: bool) -> str:
+    clan = clan_of(leader_id)
+    if not clan or not can_manage(leader_id):
+        return "Yetkin yok."
+    if not db.one("SELECT 1 FROM clan_requests WHERE clan_id=? AND user_id=?",
+                  (clan["id"], target_id)):
+        return "Bu istek artık yok."
+    db.run("DELETE FROM clan_requests WHERE clan_id=? AND user_id=?", (clan["id"], target_id))
+    target = db.get_user(target_id)
+    if not ok:
+        return f"❌ {ui.name_of(target)} reddedildi."
+    if target["clan_id"]:
+        return "Bu oyuncu başka bir klana girmiş."
+    if member_count(clan["id"]) >= member_limit(clan):
+        return "👥 Kontenjan dolu, önce klanı büyüt."
+    db.run("INSERT OR REPLACE INTO clan_members (clan_id, user_id, role, joined_ts) "
+           "VALUES (?,?, 'uye', ?)", (clan["id"], target_id, ui.now()))
+    db.upd(target_id, clan_id=clan["id"])
+    return f"✅ {ui.name_of(target)} klana alındı!"
+
+
+# ---------------------------------------------------------------------------
+# ÜYELER
+# ---------------------------------------------------------------------------
+
+def members_text(user_id: int, page: int = 0) -> str:
+    clan = clan_of(user_id)
+    if not clan:
+        return "Klanda değilsin."
+    rows = db.all_(
+        "SELECT m.*, u.first_name, u.level, u.pvp_wins FROM clan_members m "
+        "JOIN users u ON u.user_id=m.user_id WHERE m.clan_id=? "
+        "ORDER BY CASE m.role WHEN 'lider' THEN 0 WHEN 'yonetici' THEN 1 ELSE 2 END, "
+        f"m.contributed DESC LIMIT {CLAN_PAGE} OFFSET {page * CLAN_PAGE}", (clan["id"],))
+    lines = [f"👥 <b>{clan['emblem']} {ui.esc(clan['name'])} ÜYELERİ</b>\n{ui.LINE}",
+             f"<i>{member_count(clan['id'])}/{member_limit(clan)} üye</i>\n"]
+    for row in rows:
+        lines.append(
+            f"{ROLE_ICON.get(row['role'], '•')} <b>{ui.esc(row['first_name'])}</b> "
+            f"({ROLE_NAME.get(row['role'], 'Üye')})\n"
+            f"<blockquote>🎚 Sv.{row['level']}  •  ⚔️ {row['pvp_wins']}G  •  "
+            f"💰 bağış {ui.fmt(row['contributed'])} 🪙</blockquote>")
+    return "\n".join(lines)
+
+
+def members_kb(user_id: int, page: int = 0):
+    clan = clan_of(user_id)
+    rows = []
+    if clan and can_manage(user_id):
+        for row in db.all_(
+                "SELECT m.*, u.first_name FROM clan_members m JOIN users u ON u.user_id=m.user_id "
+                f"WHERE m.clan_id=? AND m.user_id<>? LIMIT {CLAN_PAGE} OFFSET {page * CLAN_PAGE}",
+                (clan["id"], user_id)):
+            rows.append([(f"⚙️ {row['first_name'][:14]}", f"s:cm:{row['user_id']}")])
+    total = member_count(clan["id"]) if clan else 0
+    nav = []
+    if page > 0:
+        nav.append(("⬅️", f"s:cmem:{page - 1}"))
+    if (page + 1) * CLAN_PAGE < total:
+        nav.append(("➡️", f"s:cmem:{page + 1}"))
+    if nav:
+        rows.append(nav)
+    rows.append([("⬅️ Geri", "s:clan")])
+    return ui.kb(rows)
+
+
+def member_card(leader_id: int, target_id: int):
+    clan = clan_of(leader_id)
+    target = db.get_user(target_id)
+    row = db.one("SELECT * FROM clan_members WHERE user_id=?", (target_id,))
+    if not clan or not row or not target:
+        return "Üye bulunamadı.", ui.kb([[("⬅️ Geri", "s:cmem:0")]])
+    text = (f"👤 <b>{ui.name_of(target)}</b>  {ROLE_ICON.get(row['role'], '•')}\n{ui.LINE}\n"
+            f"<blockquote>🎚 Seviye {target['level']}\n"
+            f"⚔️ {target['pvp_wins']} düello galibiyeti\n"
+            f"💰 Klana bağışı: {ui.fmt(row['contributed'])} 🪙\n"
+            f"🎖 Rol: {ROLE_NAME.get(row['role'], 'Üye')}</blockquote>")
+    rows = []
+    if my_role(leader_id) == "lider" and row["role"] != "lider":
+        if row["role"] == "uye":
+            rows.append([("⭐ Yönetici yap", f"s:cprom:{target_id}")])
+        else:
+            rows.append([("⬇️ Üyeliğe düşür", f"s:cdem:{target_id}")])
+        rows.append([("👑 Liderliği devret", f"s:cgive:{target_id}")])
+    if can_manage(leader_id) and row["role"] != "lider":
+        rows.append([("🚪 Klandan at", f"s:ckick:{target_id}")])
+    rows.append([("⬅️ Üyeler", "s:cmem:0")])
+    return text, ui.kb(rows)
+
+
+def member_action(leader_id: int, target_id: int, action: str) -> str:
+    clan = clan_of(leader_id)
+    row = db.one("SELECT * FROM clan_members WHERE user_id=?", (target_id,))
+    if not clan or not row or row["clan_id"] != clan["id"]:
+        return "Üye bulunamadı."
+    if row["role"] == "lider":
+        return "Lidere işlem yapılamaz."
+    if action == "kick":
+        if not can_manage(leader_id):
+            return "Yetkin yok."
+        db.run("DELETE FROM clan_members WHERE user_id=?", (target_id,))
+        db.upd(target_id, clan_id=0)
+        return f"🚪 {ui.name_of(db.get_user(target_id))} klandan çıkarıldı."
+    if my_role(leader_id) != "lider":
+        return "Bunu sadece lider yapabilir."
+    if action == "prom":
+        db.run("UPDATE clan_members SET role='yonetici' WHERE user_id=?", (target_id,))
+        return f"⭐ {ui.name_of(db.get_user(target_id))} yönetici yapıldı."
+    if action == "dem":
+        db.run("UPDATE clan_members SET role='uye' WHERE user_id=?", (target_id,))
+        return f"⬇️ {ui.name_of(db.get_user(target_id))} üyeliğe düşürüldü."
+    if action == "give":
+        db.run("UPDATE clan_members SET role='uye' WHERE user_id=?", (leader_id,))
+        db.run("UPDATE clan_members SET role='lider' WHERE user_id=?", (target_id,))
+        db.run("UPDATE clans SET owner_id=? WHERE id=?", (target_id, clan["id"]))
+        return f"👑 Liderlik {ui.name_of(db.get_user(target_id))} kişisine devredildi."
+    return "?"
+
+
+# ---------------------------------------------------------------------------
+# AYARLAR (lider)
+# ---------------------------------------------------------------------------
+
+def settings_text(user_id: int) -> str:
+    clan = clan_of(user_id)
+    if not clan:
+        return "Klanda değilsin."
+    return (f"⚙️ <b>KLAN AYARLARI</b>\n{ui.LINE}\n"
+            f"{clan['emblem']} <b>{ui.esc(clan['name'])}</b>\n"
+            f"<blockquote>🚪 Katılım: <b>{'herkese açık' if clan['open_join'] else 'istekle'}</b>\n"
+            f"🎚 En az seviye: <b>{clan['min_level']}</b>\n"
+            f"🏳 Amblem: <b>{clan['emblem']}</b>\n"
+            f"💬 Slogan: <i>{ui.esc(clan['motto'] or '—')}</i></blockquote>\n"
+            "<i>Katılım 'istekle' olursa gelenleri sen onaylarsın.</i>")
+
+
+def settings_kb(user_id: int):
+    clan = clan_of(user_id)
+    if not clan:
+        return ui.kb([[("⬅️ Geri", "s:clan")]])
+    rows = [
+        [("🔓 Herkese açık" if not clan["open_join"] else "🔒 İstekle yap", "s:copen")],
+        [("🎚 Seviye şartı", "s:cminlvl")],
+        [("🏳 Amblem değiştir", "s:cemblem")],
+        [("💬 Slogan yaz", "s:cmotto")],
+        [("⬅️ Geri", "s:clan")],
+    ]
+    return ui.kb(rows)
+
+
+def emblem_kb():
+    rows, line = [], []
+    for emoji in EMBLEMS:
+        line.append((emoji, f"s:cem:{emoji}"))
+        if len(line) == 4:
+            rows.append(line)
+            line = []
+    if line:
+        rows.append(line)
+    rows.append([("⬅️ Geri", "s:cset")])
+    return ui.kb(rows)
+
+
+def minlevel_kb():
+    rows = [[(f"Sv.{lv}+", f"s:cminlv:{lv}") for lv in (1, 5, 10)],
+            [(f"Sv.{lv}+", f"s:cminlv:{lv}") for lv in (15, 20, 30)],
+            [("⬅️ Geri", "s:cset")]]
+    return ui.kb(rows)
+
+
+# ---------------------------------------------------------------------------
+# KURMA / AYRILMA / BAĞIŞ
+# ---------------------------------------------------------------------------
 
 def clan_create(user_id: int, name: str) -> str:
     name = " ".join(name.split())[:24]
@@ -340,64 +666,67 @@ def clan_create(user_id: int, name: str) -> str:
     if db.one("SELECT id FROM clans WHERE lower(name)=lower(?)", (name,)):
         return "Bu isimde bir klan var, başka bir isim dene."
     if not economy.take_coins(user_id, CLAN_COST, "klan kurma"):
-        return f"Klan kurmak {ui.fmt(CLAN_COST)} altın tutuyor."
-    cur = db.run(
-        "INSERT INTO clans (name, owner_id, treasury, created_ts) VALUES (?,?,0,?)",
-        (name, user_id, ui.now()))
+        return i18n.t(i18n.lang_of(user_id), "no_money", need=ui.fmt(CLAN_COST),
+                      have=ui.fmt(user["coins"]))
+    cur = db.run("INSERT INTO clans (name, owner_id, treasury, created_ts) VALUES (?,?,0,?)",
+                 (name, user_id, ui.now()))
     clan_id = int(cur.lastrowid)
-    db.run("INSERT OR REPLACE INTO clan_members (clan_id, user_id, role, joined_ts) VALUES (?,?, 'lider', ?)",
-           (clan_id, user_id, ui.now()))
+    db.run("INSERT OR REPLACE INTO clan_members (clan_id, user_id, role, joined_ts) "
+           "VALUES (?,?, 'lider', ?)", (clan_id, user_id, ui.now()))
     db.upd(user_id, clan_id=clan_id)
-    return f"🏰 <b>{ui.esc(name)}</b> klanı kuruldu! Arkadaşlarını davet et."
-
-
-def clan_join(user_id: int, clan_id: int) -> str:
-    user = db.get_user(user_id)
-    if user["clan_id"]:
-        return "Zaten bir klandasın. Önce ayrılman gerekir."
-    clan = db.one("SELECT * FROM clans WHERE id=?", (clan_id,))
-    if not clan:
-        return "Klan bulunamadı."
-    count = int(db.scalar("SELECT COUNT(*) FROM clan_members WHERE clan_id=?", (clan_id,)))
-    if count >= 20 + clan["level"] * 2:
-        return "Klan kontenjanı dolu."
-    db.run("INSERT OR REPLACE INTO clan_members (clan_id, user_id, role, joined_ts) VALUES (?,?, 'uye', ?)",
-           (clan_id, user_id, ui.now()))
-    db.upd(user_id, clan_id=clan_id)
-    return f"🏰 <b>{ui.esc(clan['name'])}</b> klanına katıldın!"
+    db.run("DELETE FROM clan_requests WHERE user_id=?", (user_id,))
+    return (f"🏰 <b>{ui.esc(name)}</b> klanı kuruldu, sen lidersin! 👑\n"
+            "Ayarlardan amblem ve katılım şeklini seçebilirsin.")
 
 
 def clan_leave(user_id: int) -> str:
-    user = db.get_user(user_id)
-    if not user["clan_id"]:
+    clan = clan_of(user_id)
+    if not clan:
         return "Bir klanda değilsin."
-    clan = db.one("SELECT * FROM clans WHERE id=?", (user["clan_id"],))
+    role = my_role(user_id)
+    others = member_count(clan["id"]) - 1
+    if role == "lider" and others > 0:
+        return ("👑 Lider ayrılamaz!\nÖnce üyeler ekranından birine liderliği devret "
+                "ya da tüm üyeleri çıkar.")
     db.run("DELETE FROM clan_members WHERE user_id=?", (user_id,))
     db.upd(user_id, clan_id=0)
-    if clan and clan["owner_id"] == user_id:
-        nxt = db.one("SELECT * FROM clan_members WHERE clan_id=? ORDER BY contributed DESC LIMIT 1",
-                     (clan["id"],))
-        if nxt:
-            db.run("UPDATE clans SET owner_id=? WHERE id=?", (nxt["user_id"], clan["id"]))
-            db.run("UPDATE clan_members SET role='lider' WHERE user_id=?", (nxt["user_id"],))
-        else:
-            db.run("DELETE FROM clans WHERE id=?", (clan["id"],))
+    if others <= 0:
+        db.run("DELETE FROM clans WHERE id=?", (clan["id"],))
+        db.run("DELETE FROM clan_requests WHERE clan_id=?", (clan["id"],))
+        return "🚪 Klandan ayrıldın. Son üye sen olduğun için klan kapandı."
     return "🚪 Klandan ayrıldın."
 
 
-def clan_donate(user_id: int, amount: int) -> str:
-    user = db.get_user(user_id)
-    if not user["clan_id"]:
+DONATE_AMOUNTS = [1_000, 10_000, 100_000, 1_000_000]
+
+
+def donate_kb(user_id: int):
+    rows = [[(f"💰 {ui.fmt(a)} 🪙", f"s:cdon:{a}")] for a in DONATE_AMOUNTS]
+    rows.append([("🔥 Hepsini bağışla", "s:cdon:all")])
+    rows.append([("⬅️ Geri", "s:clan")])
+    return ui.kb(rows)
+
+
+def clan_donate(user_id: int, amount) -> str:
+    clan = clan_of(user_id)
+    if not clan:
         return "Bir klanda değilsin."
+    user = db.get_user(user_id)
+    amount = user["coins"] if amount == "all" else int(amount)
     if amount < 1_000:
         return "En az 1.000 altın bağışlanabilir."
     if not economy.take_coins(user_id, amount, "klan bağışı"):
-        return "Yeterli altının yok."
-    db.run("UPDATE clans SET treasury=treasury+? WHERE id=?", (amount, user["clan_id"]))
+        return i18n.t(i18n.lang_of(user_id), "no_money", need=ui.fmt(amount),
+                      have=ui.fmt(user["coins"]))
+    db.run("UPDATE clans SET treasury=treasury+? WHERE id=?", (amount, clan["id"]))
     db.run("UPDATE clan_members SET contributed=contributed+? WHERE user_id=?", (amount, user_id))
-    economy.clan_add_xp(user["clan_id"], amount // 100)
+    before = clan["level"]
+    economy.clan_add_xp(clan["id"], amount // 100)
     economy.add_xp(user_id, amount // 500)
-    return f"💰 Klan kasasına {ui.fmt(amount)} 🪙 bağışladın! Klan XP +{ui.fmt(amount // 100)}"
+    after = db.one("SELECT level FROM clans WHERE id=?", (clan["id"],))["level"]
+    extra = f"\n\n🎉 <b>KLAN SEVİYE ATLADI: {after}!</b>" if after > before else ""
+    return (f"💰 Klan kasasına <b>{ui.fmt(amount)}</b> 🪙 bağışladın!\n"
+            f"✨ Klan XP +{ui.fmt(amount // 100)}{extra}")
 
 
 # ---------------------------------------------------------------------------
@@ -416,12 +745,13 @@ TOPS = {
 
 def top_text(kind: str = "rich") -> str:
     if kind == "clan":
-        rows = db.all_("SELECT name, level, treasury FROM clans ORDER BY level DESC, treasury DESC LIMIT 10")
+        rows = db.all_("SELECT * FROM clans ORDER BY level DESC, treasury DESC LIMIT 10")
         lines = ["🏆 <b>KLAN SIRALAMASI</b>\n"]
         medals = ["🥇", "🥈", "🥉"] + ["🏅"] * 7
         for i, row in enumerate(rows):
-            lines.append(f"{medals[i]} <b>{ui.esc(row['name'])}</b> — Sv.{row['level']} • "
-                         f"{ui.fmt(row['treasury'])} 🪙")
+            lines.append(f"{medals[i]} {row['emblem']} <b>{ui.esc(row['name'])}</b> — "
+                         f"Sv.{row['level']} • {ui.fmt(row['treasury'])} 🪙 • "
+                         f"{member_count(row['id'])} üye")
         if not rows:
             lines.append("Henüz klan yok.")
         return "\n".join(lines)
@@ -585,25 +915,104 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await ui.safe_edit(query, top_text(kind), top_kb())
     elif action == "clan":
         await ui.safe_edit(query, clan_text(user_id), clan_kb(user_id))
+    elif action == "clist":
+        page = int(parts[2]) if len(parts) > 2 else 0
+        await ui.safe_edit(query, clan_list_text(page), clan_list_kb(user_id, page))
     elif action == "ccreate":
         context.user_data["await"] = {"kind": "clan_name"}
         await ui.safe_edit(query, (
-            f"🏰 <b>KLAN KUR</b>\n\nMaliyet: {ui.fmt(CLAN_COST)} 🪙 • Seviye 8 gerekli\n\n"
-            "Klan adını yaz (3-24 karakter). İptal: /iptal"
-        ), ui.back_kb("s:clan"))
+            f"🏰 <b>KLAN KUR</b>\n{ui.LINE}\n"
+            f"<blockquote>💰 Bedel: <b>{ui.fmt(CLAN_COST)}</b> 🪙\n"
+            f"🎚 Seviye 8 gerekli</blockquote>\n"
+            "Klan adını yaz (3-24 karakter) 👇"
+        ), ui.kb([[("⬅️ Vazgeç", "s:clan")]]))
     elif action == "cjoin":
-        await ui.answer(query, clan_join(user_id, int(parts[2])).replace("<b>", "").replace("</b>", ""),
-                           alert=True)
+        await ui.answer(query, _plain(clan_join(user_id, int(parts[2]))), alert=True)
         await ui.safe_edit(query, clan_text(user_id), clan_kb(user_id))
+    elif action == "ccancel":
+        await ui.answer(query, clan_cancel_request(user_id, int(parts[2])))
+        await ui.safe_edit(query, clan_list_text(0), clan_list_kb(user_id, 0))
     elif action == "cleave":
-        await ui.answer(query, clan_leave(user_id), alert=True)
+        await ui.answer(query, _plain(clan_leave(user_id)), alert=True)
         await ui.safe_edit(query, clan_text(user_id), clan_kb(user_id))
     elif action == "cdonate":
-        context.user_data["await"] = {"kind": "clan_donate"}
         await ui.safe_edit(query, (
-            "💰 <b>KLAN BAĞIŞI</b>\n\nBağışlamak istediğin altın miktarını yaz (min 1.000).\n"
-            "Bağış klan seviyesini yükseltir, tüm üyeler kazanır. İptal: /iptal"
-        ), ui.back_kb("s:clan"))
+            f"💰 <b>KLAN KASASINA BAĞIŞ</b>\n{ui.LINE}\n"
+            f"{ui.header(user)}\n"
+            "<blockquote>Bağış klan XP'si kazandırır, klan seviyesi yükselir,\n"
+            "<b>bütün üyeler</b> daha çok kazanır.</blockquote>\n"
+            "Ne kadar bağışlıyorsun? 👇"
+        ), donate_kb(user_id))
+    elif action == "cdon":
+        amount = parts[2]
+        await ui.answer(query, _plain(clan_donate(user_id, amount)), alert=True)
+        await ui.safe_edit(query, clan_text(user_id), clan_kb(user_id))
+    elif action == "creqs":
+        await ui.safe_edit(query, requests_text(user_id), requests_kb(user_id))
+    elif action in ("cok", "cno"):
+        msg = approve_request(user_id, int(parts[2]), action == "cok")
+        await ui.answer(query, _plain(msg), alert=True)
+        if action == "cok":
+            try:
+                clan = clan_of(user_id)
+                await context.bot.send_message(
+                    int(parts[2]), f"🏰 <b>{ui.esc(clan['name'])}</b> klanına kabul edildin!",
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=ui.kb([[("🏰 Klanım", "s:clan")]]))
+            except Exception:
+                pass
+        await ui.safe_edit(query, requests_text(user_id), requests_kb(user_id))
+    elif action == "cmem":
+        page = int(parts[2]) if len(parts) > 2 else 0
+        await ui.safe_edit(query, members_text(user_id, page), members_kb(user_id, page))
+    elif action == "cm":
+        text, kb = member_card(user_id, int(parts[2]))
+        await ui.safe_edit(query, text, kb)
+    elif action in ("ckick", "cprom", "cdem", "cgive"):
+        act = {"ckick": "kick", "cprom": "prom", "cdem": "dem", "cgive": "give"}[action]
+        await ui.answer(query, _plain(member_action(user_id, int(parts[2]), act)), alert=True)
+        await ui.safe_edit(query, members_text(user_id), members_kb(user_id))
+    elif action == "cset":
+        if my_role(user_id) != "lider":
+            await ui.answer(query, "⛔ Bunu sadece klan lideri yapabilir.", alert=True)
+            return
+        await ui.safe_edit(query, settings_text(user_id), settings_kb(user_id))
+    elif action == "copen":
+        clan = clan_of(user_id)
+        if clan and my_role(user_id) == "lider":
+            new_val = 0 if clan["open_join"] else 1
+            db.run("UPDATE clans SET open_join=? WHERE id=?", (new_val, clan["id"]))
+            await ui.answer(query, "🔓 Katılım herkese açık." if new_val
+                            else "🔒 Katılım artık istekle. İstekleri sen onaylayacaksın.",
+                            alert=True)
+        await ui.safe_edit(query, settings_text(user_id), settings_kb(user_id))
+    elif action == "cminlvl":
+        await ui.safe_edit(query, (
+            f"🎚 <b>SEVİYE ŞARTI</b>\n{ui.LINE}\n"
+            "Klana girebilmek için en az kaçıncı seviye gerekli olsun?"
+        ), minlevel_kb())
+    elif action == "cminlv":
+        clan = clan_of(user_id)
+        if clan and my_role(user_id) == "lider":
+            db.run("UPDATE clans SET min_level=? WHERE id=?", (int(parts[2]), clan["id"]))
+            await ui.answer(query, f"✅ Artık en az Seviye {parts[2]} gerekiyor.", alert=True)
+        await ui.safe_edit(query, settings_text(user_id), settings_kb(user_id))
+    elif action == "cemblem":
+        await ui.safe_edit(query, (
+            f"🏳 <b>AMBLEM SEÇ</b>\n{ui.LINE}\nKlanının simgesi listelerde görünür."
+        ), emblem_kb())
+    elif action == "cem":
+        clan = clan_of(user_id)
+        if clan and my_role(user_id) == "lider":
+            db.run("UPDATE clans SET emblem=? WHERE id=?", (parts[2], clan["id"]))
+            await ui.answer(query, f"✅ Amblem: {parts[2]}")
+        await ui.safe_edit(query, settings_text(user_id), settings_kb(user_id))
+    elif action == "cmotto":
+        context.user_data["await"] = {"kind": "clan_motto"}
+        await ui.safe_edit(query, (
+            f"💬 <b>KLAN SLOGANI</b>\n{ui.LINE}\n"
+            "Klanının sloganını yaz (en fazla 60 karakter) 👇"
+        ), ui.kb([[("⬅️ Vazgeç", "s:cset")]]))
     elif action == "ref":
         await ui.safe_edit(query, ref_text(user_id), ui.back_kb("m:main"))
     elif action == "help":
@@ -627,13 +1036,12 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
         context.user_data.pop("await", None)
         await ui.send(update, clan_create(user_id, text), ui.kb([[("🏰 Klan", "s:clan")]]))
         return True
-    if kind == "clan_donate":
-        raw = text.replace(".", "").replace(",", "")
-        if not raw.isdigit():
-            await ui.send(update, "Sadece sayı yaz ya da /iptal.")
-            return True
+    if kind == "clan_motto":
         context.user_data.pop("await", None)
-        await ui.send(update, clan_donate(user_id, int(raw)), ui.kb([[("🏰 Klan", "s:clan")]]))
+        clan = clan_of(user_id)
+        if clan and my_role(user_id) == "lider":
+            db.run("UPDATE clans SET motto=? WHERE id=?", (text[:60], clan["id"]))
+            await ui.send(update, "✅ Slogan kaydedildi.", ui.kb([[("🏰 Klan", "s:clan")]]))
         return True
     if kind == "custom_bet":
         raw = text.replace(".", "").replace(",", "")

@@ -194,6 +194,7 @@ def users_kb(kind: str, page: int):
         nav.append(("➡️", f"ad:users:{page + 1}:{kind}"))
     if nav:
         rows.append(nav)
+    rows.append([("🔎 İSİM / ID İLE ARA", "ad:find")])
     filt = [(label.split()[0] + " " + label.split()[1] if len(label.split()) > 1 else label,
              f"ad:users:0:{key}") for key, (label, _o) in LISTS.items()]
     rows.append(filt[:3])
@@ -698,6 +699,20 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
 
     # --- reklam ---
+    if action == "find":
+        if await deny("users"):
+            return
+        context.user_data["await"] = {"kind": "admin_find"}
+        await ui.answer(query, "🔎 Ara")
+        await ui.safe_edit(query, (
+            f"🔎 <b>OYUNCU ARA</b>\n{ui.LINE}\n"
+            "<blockquote>Şunlardan birini yaz:\n"
+            "• Kullanıcı ID (örn. <code>5961747564</code>)\n"
+            "• @kullanıcıadı\n"
+            "• İsminin bir parçası (örn. <code>ata</code>)</blockquote>\n"
+            "Bulunanlar liste halinde gelir, birine basınca kartı açılır."
+        ), ui.kb([[("⬅️ Geri", "ad:users:0")]]))
+        return
     if action == "bc":
         if await deny("bc"):
             return
@@ -802,7 +817,7 @@ def _msg_kind(msg) -> str:
 
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     pending = context.user_data.get("await")
-    if not pending or pending.get("kind") not in ("admin_bc", "admin_msg"):
+    if not pending or pending.get("kind") not in ("admin_bc", "admin_msg", "admin_find"):
         return False
     user_id = update.effective_user.id
     if not is_staff(user_id):
@@ -827,6 +842,30 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
             f"Süre: ~{max(1, total // 20 // 60)} dakika</blockquote>\n"
             "Yukarıdaki mesaj aynen gönderilecek. Onaylıyor musun?"
         ), ui.kb([[("✅ GÖNDER", f"ad:bcgo:{bid}")], [("🚫 Vazgeç", f"ad:bccancel:{bid}")]]))
+        return True
+
+    if kind == "admin_find":
+        q = (msg.text or "").strip().lstrip("@")
+        if q.isdigit():
+            rows = db.all_("SELECT user_id, first_name, level, coins FROM users WHERE user_id=?",
+                           (int(q),))
+        else:
+            rows = db.all_(
+                "SELECT user_id, first_name, level, coins FROM users "
+                "WHERE lower(username) LIKE ? OR lower(first_name) LIKE ? "
+                "ORDER BY last_seen DESC LIMIT 20",
+                (f"%{q.lower()}%", f"%{q.lower()}%"))
+        if not rows:
+            await ui.send(update, f"🔎 <b>{ui.esc(q)}</b> için sonuç yok.",
+                          ui.kb([[("🔎 Tekrar ara", "ad:find")], [("⬅️ Panel", "ad:home")]]))
+            return True
+        kb_rows = [[(f"{ui.name_of(r)} • Sv.{r['level']} • {ui.fmt(r['coins'])}🪙",
+                     f"ad:card:{r['user_id']}")] for r in rows]
+        kb_rows.append([("🔎 Tekrar ara", "ad:find"), ("⬅️ Panel", "ad:home")])
+        await ui.send(update, (
+            f"🔎 <b>ARAMA: {ui.esc(q)}</b>\n{ui.LINE}\n"
+            f"<b>{len(rows)}</b> oyuncu bulundu. Birine bas 👇"
+        ), ui.kb(kb_rows))
         return True
 
     target = pending.get("target")

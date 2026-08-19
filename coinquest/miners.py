@@ -21,7 +21,7 @@ import ui
 log = logging.getLogger(__name__)
 
 CYCLE = config.BUSINESS_COLLECT_SEC       # 4 saat
-MAX_CYCLES = 6                            # en fazla 24 saatlik birikim
+MAX_CYCLES = 20                           # en fazla 20 döngü (80 saat) birikir
 PAGE = 5
 
 #            anahtar  ad                      emoji  fiyat            güç (4 saatte coin)  seviye
@@ -44,6 +44,39 @@ MINERS = [
 ]
 BY_KEY = {m[0]: m for m in MINERS}
 
+# Görsellerdeki boy ile aynı olmalı (images/PROMPTLAR.md).
+# Güç farkı oyuncuya "boy farkı" olarak da gösteriliyor.
+SIZES = {
+    "m01": (1, "🧍"), "m02": (2, "🧍"), "m03": (3, "🧍"), "m04": (5, "🏠"),
+    "m05": (8, "🏠"), "m06": (12, "🏢"), "m07": (18, "🏢"), "m08": (25, "🏢"),
+    "m09": (40, "🏗"), "m10": (70, "🏙"), "m11": (120, "🗼"), "m12": (200, "🗼"),
+    "m13": (400, "🚀"), "m14": (1000, "🌌"), "m15": (10000, "⭐"),
+}
+
+
+def size_of(key: str) -> str:
+    """1 -> '1 m 🧍',  1000 -> '1 km 🌌'"""
+    meters, icon = SIZES.get(key, (1, "🧍"))
+    label = f"{meters // 1000} km" if meters >= 1000 else f"{meters} m"
+    return f"{label} {icon}"
+
+
+def size_bar(key: str) -> str:
+    """Boyu çubukla gösterir. Logaritmik: 1 m = 1 çubuk, 10 km = 15 çubuk."""
+    import math
+    meters = SIZES.get(key, (1, ""))[0]
+    length = max(1, min(15, int(round(math.log10(max(1, meters)) * 3.5)) + 1))
+    return "▮" * length + "▫" * (15 - length)
+
+
+def power_vs_prev(key: str) -> float:
+    """Bir önceki madenciye göre kaç kat güçlü."""
+    keys = [m[0] for m in MINERS]
+    idx = keys.index(key)
+    if idx == 0:
+        return 0.0
+    return MINERS[idx][4] / MINERS[idx - 1][4]
+
 
 def get(key: str):
     return BY_KEY.get(key)
@@ -64,17 +97,27 @@ def total_power(user_id: int) -> int:
     return total
 
 
-def pending(user_id: int) -> tuple[int, int, int]:
-    """(birikmiş coin, tamamlanan döngü, sonraki döngüye kalan saniye)"""
+def pending(user_id: int) -> tuple[float, int, int]:
+    """Kasa saniye saniye dolar.
+
+    (birikmiş coin [ondalıklı], tamamlanan döngü, sonraki döngüye kalan saniye)
+    """
     user = db.get_user(user_id)
     power = total_power(user_id)
     if not power:
-        return 0, 0, 0
+        return 0.0, 0, 0
     last = user["miner_ts"] or ui.now()
     elapsed = max(0, ui.now() - last)
-    cycles = min(MAX_CYCLES, elapsed // CYCLE)
-    left = CYCLE - (elapsed % CYCLE)
-    return int(power * cycles), int(cycles), int(left)
+    capped = min(elapsed, MAX_CYCLES * CYCLE)     # üst sınır
+    amount = power * capped / CYCLE               # sürekli birikim
+    cycles = int(capped // CYCLE)
+    left = CYCLE - (elapsed % CYCLE) if capped < MAX_CYCLES * CYCLE else 0
+    return amount, cycles, int(left)
+
+
+def counter(amount: float) -> str:
+    """Sayaç görünümü: 003722.4 — gözle artışı takip edebilmek için."""
+    return f"{amount:08.1f}"
 
 
 def collect(user_id: int) -> str:
@@ -85,8 +128,8 @@ def collect(user_id: int) -> str:
     if cycles <= 0:
         return i18n.t(lang, "mn_wait", time=ui.dur(left))
     user = db.get_user(user_id)
-    amount = economy.payout(user, amount)
-    db.upd(user_id, miner_ts=ui.now())
+    amount = economy.payout(user, int(amount))
+    db.upd(user_id, miner_ts=ui.now(), miner_notify=0)
     economy.add_coins(user_id, amount, "madenci geliri")
     economy.add_xp(user_id, 15 * cycles)
     return i18n.t(lang, "mn_got", amount=ui.fmt(amount), cycles=cycles)
@@ -128,12 +171,16 @@ def panel_text(user_id: int) -> str:
     lines = [f"{i18n.t(lang, 'mn_title')}\n{ui.LINE}", ui.header(user)]
     if mine:
         listed = "\n".join(
-            f"{get(k)[2]} {get(k)[1]} ×{q}  —  {ui.fmt(get(k)[4] * q)} 🪙"
+            f"{get(k)[2]} {get(k)[1]} ×{q}  ({size_of(k)})\n"
+            f"    {ui.fmt(get(k)[4] * q)} 🪙"
             for k, q in sorted(mine.items()) if get(k))
         lines.append(f"<blockquote>{listed}</blockquote>")
         lines.append(i18n.t(lang, "mn_power", power=ui.fmt(power)))
+        lines.append(f"<blockquote>{i18n.t(lang, 'mn_case')}\n"
+                     f"<code>{counter(amount)}</code> 🪙\n"
+                     f"<i>+{power / CYCLE:.2f} 🪙/sn</i></blockquote>")
         if cycles > 0:
-            lines.append(i18n.t(lang, "mn_ready", amount=ui.fmt(amount), cycles=cycles))
+            lines.append(i18n.t(lang, "mn_ready_c", cycles=cycles, max=MAX_CYCLES))
         else:
             lines.append(i18n.t(lang, "mn_next", time=ui.dur(left)))
         if cycles >= MAX_CYCLES:
@@ -153,7 +200,7 @@ def panel_kb(user_id: int, page: int = 0):
     if total_power(user_id):
         label = i18n.t(lang, "mn_collect")
         if cycles > 0:
-            label += f"  ({ui.fmt(pending(user_id)[0])} 🪙)"
+            label += f"  ({ui.fmt(int(pending(user_id)[0]))} 🪙)"
         rows.append([(label, "mi:collect")])
     pages = max(1, (len(MINERS) + PAGE - 1) // PAGE)
     page = max(0, min(page, pages - 1))
@@ -163,7 +210,7 @@ def panel_kb(user_id: int, page: int = 0):
             label = f"🔒 {emoji} {name} — Sv.{min_level}"
         else:
             tag = f" ×{have}" if have else ""
-            label = f"{emoji} {name}{tag} — {ui.fmt(price)} 🪙"
+            label = f"{emoji} {name}{tag} • {size_of(key)} — {ui.fmt(price)} 🪙"
         rows.append([(label, f"mi:info:{key}")])
     nav = []
     if page > 0:
@@ -186,12 +233,17 @@ def info_text(user_id: int, key: str) -> str:
     user = db.get_user(user_id)
     have = owned(user_id).get(key, 0)
     roi = price / power * (CYCLE / 3600)
+    idx = [m[0] for m in MINERS].index(key) + 1
     return (
-        f"{emoji} <b>{name}</b>\n{ui.LINE}\n"
-        f"<blockquote>💰 {i18n.t(lang, 'mn_price')}: <b>{ui.fmt(price)}</b> 🪙\n"
+        f"{emoji} <b>{name}</b>   <i>{idx}/{len(MINERS)}</i>\n{ui.LINE}\n"
+        f"<blockquote>📏 {i18n.t(lang, 'mn_size')}: <b>{size_of(key)}</b>\n"
+        f"{size_bar(key)}\n"
+        f"💰 {i18n.t(lang, 'mn_price')}: <b>{ui.fmt(price)}</b> 🪙\n"
         f"⚡ {i18n.t(lang, 'mn_power_s')}: <b>{ui.fmt(power)}</b> 🪙 / {CYCLE // 3600}s\n"
         f"📦 {i18n.t(lang, 'mn_have')}: <b>{have}</b>\n"
         f"⏱ {i18n.t(lang, 'mn_roi', hours=int(roi))}</blockquote>\n"
+        + (f"🔺 {i18n.t(lang, 'mn_stronger', x=f'{power_vs_prev(key):.1f}')}\n"
+           if power_vs_prev(key) else "")
         + (f"🔒 Seviye {min_level} gerekli\n" if user["level"] < min_level else "")
         + f"🪙 {ui.fmt(user['coins'])}"
     )
@@ -225,7 +277,9 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     if action == "menu":
         page = int(parts[2]) if len(parts) > 2 else 0
-        await ui.nav(query, "miners", panel_text(user_id), panel_kb(user_id, page))
+        msg = await ui.nav(query, "miners", panel_text(user_id), panel_kb(user_id, page))
+        if msg and page == 0:
+            start_ticker(context, msg.chat_id, msg.message_id, user_id)
     elif action == "noop":
         await ui.answer(query)
     elif action == "info":
@@ -239,7 +293,66 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     elif action == "collect":
         msg = collect(user_id)
         await ui.answer(query, msg.replace("<b>", "").replace("</b>", ""), alert=True)
-        await ui.nav(query, "miners", panel_text(user_id), panel_kb(user_id))
+        new = await ui.nav(query, "miners", panel_text(user_id), panel_kb(user_id))
+        if new:
+            start_ticker(context, new.chat_id, new.message_id, user_id)
+
+
+# ---------------------------------------------------------------------------
+# CANLI SAYAÇ  (ekran açıkken kasa gözle görülür şekilde artar)
+# ---------------------------------------------------------------------------
+TICK_SECONDS = 12          # kaç saniyede bir güncellensin
+TICK_COUNT = 15            # kaç kez güncellensin (12 x 15 = 3 dakika)
+
+
+def start_ticker(context, chat_id: int, message_id: int, user_id: int) -> None:
+    """Madenci ekranı açıkken sayacı canlı günceller."""
+    queue = getattr(context, "job_queue", None)
+    if queue is None:
+        return
+    name = f"miner_tick_{user_id}"
+    for job in queue.get_jobs_by_name(name):
+        job.schedule_removal()
+    queue.run_repeating(
+        _tick, interval=TICK_SECONDS, first=TICK_SECONDS, name=name,
+        data={"chat": chat_id, "msg": message_id, "user": user_id, "n": 0})
+
+
+async def _tick(context: ContextTypes.DEFAULT_TYPE) -> None:
+    data = context.job.data
+    data["n"] += 1
+    if data["n"] > TICK_COUNT or total_power(data["user"]) == 0:
+        context.job.schedule_removal()
+        return
+    try:
+        await context.bot.edit_message_text(
+            panel_text(data["user"]), chat_id=data["chat"], message_id=data["msg"],
+            parse_mode="HTML", reply_markup=panel_kb(data["user"]))
+    except Exception:
+        context.job.schedule_removal()      # mesaj silinmiş ya da değişmiş
+
+
+async def job_notify(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Kasada en az 1 döngü birikince 'toplama zamanı' bildirimi gönderir."""
+    rows = db.all_("SELECT DISTINCT user_id FROM miners WHERE qty>0")
+    for row in rows:
+        uid = row["user_id"]
+        user = db.get_user(uid)
+        if not user or user["banned"] or user["miner_notify"]:
+            continue
+        amount, cycles, _left = pending(uid)
+        if cycles < 1:
+            continue
+        lang = i18n.lang_of(uid)
+        db.upd(uid, miner_notify=1)
+        try:
+            await context.bot.send_message(
+                uid, i18n.t(lang, "mn_alert", amount=ui.fmt(int(amount))),
+                parse_mode="HTML",
+                reply_markup=ui.kb([[(i18n.t(lang, "mn_collect"), "mi:collect")],
+                                    [(i18n.t(lang, "b_miners"), "mi:menu:0")]]))
+        except Exception:
+            continue
 
 
 async def cmd_miners(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -247,4 +360,6 @@ async def cmd_miners(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     if not ui.is_private(update):
         await ui.send(update, i18n.t(i18n.lang_of(user_id), "only_private"), ui.pm_link())
         return
-    await ui.screen(update, "miners", panel_text(user_id), panel_kb(user_id))
+    msg = await ui.screen(update, "miners", panel_text(user_id), panel_kb(user_id))
+    if msg:
+        start_ticker(context, msg.chat_id, msg.message_id, user_id)

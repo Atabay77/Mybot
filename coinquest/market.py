@@ -242,8 +242,7 @@ def equip(user_id: int, inv_id: int) -> str:
     user = db.get_user(user_id)
     if not item or item["kind"] not in ("weapon", "armor", "pet"):
         return "Bu eşya kuşanılamaz."
-    if user["level"] < item["min_level"]:
-        return f"Seviye {item['min_level']} gerekiyor."
+    # Seviye şartı yok: pazardan alınan eşyayı herkes kuşanabilir.
     slot = {"weapon": "weapon_id", "armor": "armor_id", "pet": "pet_id"}[item["kind"]]
     db.upd(user_id, **{slot: inv_id})
     return f"✅ {items.label(row['item_key'], row['item_lvl'])} kuşanıldı!"

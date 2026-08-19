@@ -378,7 +378,7 @@ async def job_lottery(context: ContextTypes.DEFAULT_TYPE) -> None:
         pool.extend([row["user_id"]] * row["tickets"])
     winner = random.choice(pool)
     economy.add_coins(winner, rnd["pot"], "piyango kazancı")
-    economy.add_gems(winner, 5, "piyango")
+    economy.add_gems(winner, 1, "çekiliş")
     db.run("UPDATE lottery SET done=1, winner=? WHERE round_no=?", (winner, rnd["round_no"]))
     db.run(
         "INSERT INTO lottery (round_no, pot, end_ts, done) VALUES (?,?,?,0)",
@@ -388,7 +388,7 @@ async def job_lottery(context: ContextTypes.DEFAULT_TYPE) -> None:
     text = (
         f"🎉 <b>PİYANGO SONUCU — {rnd['round_no']}. ÇEKİLİŞ</b>\n\n"
         f"🏆 Kazanan: {ui.mention(user)}\n"
-        f"💰 Ödül: <b>{ui.fmt(rnd['pot'])}</b> 🪙 + 5 💎\n\n"
+        f"💰 Ödül: <b>{ui.fmt(rnd['pot'])}</b> 🪙 + 1 💎\n\n"
         f"Yeni çekiliş başladı! /piyango"
     )
     try:

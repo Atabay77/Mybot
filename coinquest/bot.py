@@ -467,6 +467,7 @@ def build_app() -> Application:
         jq.run_repeating(events.job_interest, interval=3600, first=300)
         jq.run_repeating(pvp.job_cleanup, interval=300, first=120)
         jq.run_repeating(pvp.job_queue_clean, interval=120, first=60)
+        jq.run_repeating(miners.job_notify, interval=300, first=180)
     else:
         log.warning("JobQueue yok: pip install 'python-telegram-bot[job-queue]'")
     return app

@@ -93,6 +93,13 @@ CREATE TABLE IF NOT EXISTS clans (
     created_ts INTEGER NOT NULL DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS clan_requests (
+    clan_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    ts      INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (clan_id, user_id)
+);
+
 CREATE TABLE IF NOT EXISTS clan_members (
     clan_id     INTEGER NOT NULL,
     user_id     INTEGER PRIMARY KEY,
@@ -300,11 +307,15 @@ EXTRA_USER_COLUMNS = [
     ("wd_currency", "TEXT NOT NULL DEFAULT 'TMT'"), # tercih ettiği para birimi
     ("energy_unlim", "INTEGER NOT NULL DEFAULT 0"), # 1 = sınırsız enerji
     ("miner_ts", "INTEGER NOT NULL DEFAULT 0"),     # madenlerden son toplama zamanı
+    ("miner_notify", "INTEGER NOT NULL DEFAULT 0"), # 'kasan doldu' bildirimi gitti mi
 ]
 
 
 EXTRA_TABLE_COLUMNS = {
     "staff": [("perms", "TEXT NOT NULL DEFAULT ''")],
+    "clans": [("emblem", "TEXT NOT NULL DEFAULT '🏰'"),
+              ("min_level", "INTEGER NOT NULL DEFAULT 1"),
+              ("wins", "INTEGER NOT NULL DEFAULT 0")],
     "withdrawals": [("currency", "TEXT NOT NULL DEFAULT 'TMT'")],
     "broadcasts": [("src_chat", "INTEGER NOT NULL DEFAULT 0"),
                    ("src_msg", "INTEGER NOT NULL DEFAULT 0")],
