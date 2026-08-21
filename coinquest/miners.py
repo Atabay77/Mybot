@@ -2,8 +2,8 @@
 """Madenci sistemi.
 
 Oyuncu coin ile madenci satın alır. Her madencinin bir GÜCÜ vardır ve
-gücü kadar 4 saatte bir coin üretir. Kasa en fazla 20 döngü (80 saat) biriktirir,
-yani düzenli toplamak gerekir.
+gücü kadar 4 saatte bir coin üretir. Kasa 4 saatte dolar ve DURUR — oyuncu
+kasayı boşaltmadan üretim devam etmez, yani düzenli toplamak gerekir.
 
 Yeni madenci eklemek için MINERS listesine satır eklemen yeterli.
 """
@@ -17,13 +17,14 @@ import db
 import economy
 import i18n
 import notify
+import perks
 import ui
 import war
 
 log = logging.getLogger(__name__)
 
 CYCLE = config.BUSINESS_COLLECT_SEC       # 4 saat
-MAX_CYCLES = 20                           # en fazla 20 döngü (80 saat) birikir
+MAX_CYCLES = 1                            # kasa 1 döngüde (4 saat) DOLAR ve durur
 PAGE = 5
 
 #            anahtar  ad                      emoji  fiyat            güç (4 saatte coin)  seviye
@@ -110,11 +111,17 @@ def pending(user_id: int) -> tuple[float, int, int]:
         return 0.0, 0, 0
     last = user["miner_ts"] or ui.now()
     elapsed = max(0, ui.now() - last)
-    capped = min(elapsed, MAX_CYCLES * CYCLE)     # üst sınır
+    limit = max_cycles(user_id)
+    capped = min(elapsed, limit * CYCLE)          # depo dolunca üretim DURUR
     amount = power * capped / CYCLE               # sürekli birikim
     cycles = int(capped // CYCLE)
-    left = CYCLE - (elapsed % CYCLE) if capped < MAX_CYCLES * CYCLE else 0
+    left = CYCLE - (elapsed % CYCLE) if capped < limit * CYCLE else 0
     return amount, cycles, int(left)
+
+
+def max_cycles(user_id: int) -> int:
+    """Deponun kaç döngü alabildiği. 'Madenci Deposu' ustalığı büyütür."""
+    return MAX_CYCLES + perks.level(user_id, "pk_miner")
 
 
 def counter(amount: float) -> str:
@@ -183,14 +190,12 @@ def panel_text(user_id: int) -> str:
                      f"<code>{counter(amount)}</code> 🪙\n"
                      f"<i>+{power / CYCLE:.2f} 🪙/sn</i></blockquote>")
         if cycles > 0:
-            lines.append(i18n.t(lang, "mn_ready_c", cycles=cycles, max=MAX_CYCLES))
+            lines.append(i18n.t(lang, "mn_full"))       # doldu ve DURDU
         else:
             lines.append(i18n.t(lang, "mn_next", time=ui.dur(left)))
-        if cycles >= MAX_CYCLES:
-            lines.append(i18n.t(lang, "mn_full"))
     else:
         lines.append(i18n.t(lang, "mn_empty"))
-    lines.append("\n" + i18n.t(lang, "mn_how", hours=CYCLE // 3600, max=MAX_CYCLES))
+    lines.append("\n" + i18n.t(lang, "mn_how", hours=max_cycles(user_id) * CYCLE // 3600))
     return "\n".join(lines)
 
 

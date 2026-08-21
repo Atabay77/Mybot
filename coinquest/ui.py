@@ -80,19 +80,30 @@ def kb(rows: Iterable[Iterable[tuple[str, str]]]) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(out)
 
 
+def _duel_fire() -> str:
+    """Ana menüdeki Düello butonuna bekleyen açık oyun sayısını ekler: '⚔️ Düello 3🔥'"""
+    try:
+        import pvp
+        total = sum(pvp.open_counts().values())
+        return f"  {total}🔥" if total else ""
+    except Exception:
+        return ""
+
+
 def main_menu_kb(lang: str = i18n.DEFAULT, user_id: int = 0) -> InlineKeyboardMarkup:
     """Ana menü. Yönetim düğmesi yalnızca yetkililere görünür."""
     rows = [
         [(i18n.t(lang, "b_play"), "g:menu"), (i18n.t(lang, "b_money"), "cash:menu")],
         [(i18n.t(lang, "b_gift"), "s:daily"), (i18n.t(lang, "b_shop"), "mk:menu")],
-        [(i18n.t(lang, "b_duel"), "pvp:menu"), (i18n.t(lang, "b_boss"), "ev:boss"),
+        [(i18n.t(lang, "b_duel") + _duel_fire(), "pvp:menu"),
+         (i18n.t(lang, "b_boss"), "ev:boss"),
          (i18n.t(lang, "b_lottery"), "ev:lottery")],
         [(i18n.t(lang, "b_miners"), "mi:menu:0"), (i18n.t(lang, "b_bank"), "s:bank")],
         [(i18n.t(lang, "b_clan"), "s:clan"), (i18n.t(lang, "b_war"), "w:menu")],
-        [(i18n.t(lang, "b_bazaar"), "mk:bazaar"), (i18n.t(lang, "b_items"), "mk:inv")],
-        [(i18n.t(lang, "b_profile"), "s:profile"), (i18n.t(lang, "b_top"), "s:top")],
-        [(i18n.t(lang, "b_quests"), "ev:quests"), (i18n.t(lang, "b_friends"), "s:ref")],
-        [(i18n.t(lang, "b_more"), "m:more")],
+        [(i18n.t(lang, "b_bazaar"), "mk:bazaar"), (i18n.t(lang, "b_perks"), "pk:menu")],
+        [(i18n.t(lang, "b_items"), "mk:inv"), (i18n.t(lang, "b_profile"), "s:profile")],
+        [(i18n.t(lang, "b_top"), "s:top"), (i18n.t(lang, "b_quests"), "ev:quests")],
+        [(i18n.t(lang, "b_friends"), "s:ref"), (i18n.t(lang, "b_more"), "m:more")],
     ]
     if user_id and db.staff_role(user_id):
         rows.append([("🛠 YÖNETİM PANELİ", "ad:home")])
@@ -130,7 +141,7 @@ def money(value: int) -> str:
 def header(user, with_money: bool = False) -> str:
     """Cüzdan satırı — alıntı kutusu içinde, her dilde aynı (emoji)."""
     en = economy.sync_energy(user["user_id"])
-    mx = economy.max_energy(user["level"])
+    mx = economy.max_energy(user["level"], user["user_id"])
     line = (f"{E_COIN} <b>{fmt(user['coins'])}</b>   {E_GEM} {fmt(user['gems'])}   "
             f"{E_EN} {en}/{mx}   🎚 {user['level']}")
     if with_money:

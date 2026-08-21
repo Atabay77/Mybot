@@ -483,6 +483,27 @@ async def xox_move(update, context, duel_id: int, cell: int) -> None:
 DICE_EMOJIS = ["🎲", "🎯", "🎳", "⚽", "🏀"]
 
 
+async def _roll(context, chat_id: int, emoji: str) -> int:
+    """Telegram zarını atar ve GERÇEK değerini döner (gönderilemezse yedek rastgele)."""
+    try:
+        msg = await context.bot.send_dice(chat_id, emoji=emoji)
+        if msg and msg.dice:
+            return msg.dice.value
+    except Exception:
+        pass
+    return random.randint(1, 6)
+
+
+async def _show_opponent_roll(context, chat_id: int, rival, value: int, emoji: str) -> None:
+    """Rakibin attığı zarı diğer oyuncuya bildirir (şeffaflık)."""
+    try:
+        await context.bot.send_message(
+            chat_id, f"{emoji} <b>{ui.name_of(rival)}</b> attı: <b>{value}</b>",
+            parse_mode=ParseMode.HTML)
+    except Exception:
+        pass
+
+
 async def dice_start(context, duel) -> None:
     emoji = random.choice(DICE_EMOJIS)
     p1, p2 = db.get_user(duel["p1"]), db.get_user(duel["p2"])
@@ -495,12 +516,13 @@ async def dice_start(context, duel) -> None:
         rolls = []
         v1 = v2 = 0
         for attempt in range(5):
-            v1, v2 = random.randint(1, 6), random.randint(1, 6)
-            for uid in (duel["p1"], duel["p2"]):
-                try:
-                    await context.bot.send_dice(uid, emoji=emoji)
-                except Exception:
-                    pass
+            # GERÇEK Telegram zarı: değeri Telegram belirler, biz sadece okuruz.
+            # Her oyuncu KENDİ zarını atar, sonra rakibinin zarı ona iletilir —
+            # böylece ikisi de aynı animasyonu ve aynı sayıyı görür, hile şüphesi kalmaz.
+            v1 = await _roll(context, duel["p1"], emoji)
+            v2 = await _roll(context, duel["p2"], emoji)
+            await _show_opponent_roll(context, duel["p2"], p1, v1, emoji)
+            await _show_opponent_roll(context, duel["p1"], p2, v2, emoji)
             rolls.append(f"{ui.name_of(p1)} <b>{v1}</b> — <b>{v2}</b> {ui.name_of(p2)}")
             if v1 != v2:
                 break
@@ -758,7 +780,7 @@ def pvp_menu_text(user, private: bool = True) -> str:
     head = (
         "⚔️ <b>PVP ARENA</b>\n"
         f"{ui.header(user)}\n\n"
-        f"🏅 PVP: <b>{user['pvp_wins']}</b> galibiyet / {user['pvp_losses']} yenilgi\n\n"
+        f"🏅 PVP: <b>{user['pvp_wins']}W</b> / {user['pvp_losses']}L\n\n"
     )
     modes = "\n".join(f"{e} <b>{n}</b> — {d}" for e, n, d in MODES.values())
     if private:
@@ -817,7 +839,8 @@ def pvp_top_text() -> str:
     medals = ["🥇", "🥈", "🥉"] + ["🏅"] * 7
     lines = ["🏆 <b>PVP SIRALAMASI</b>\n"]
     for i, row in enumerate(rows):
-        lines.append(f"{medals[i]} {ui.esc(row['first_name'])} — <b>{row['pvp_wins']}</b>G / {row['pvp_losses']}Y")
+        lines.append(f"{medals[i]} {ui.esc(row['first_name'])} — "
+                     f"<b>{row['pvp_wins']}W</b> / {row['pvp_losses']}L")
     return "\n".join(lines)
 
 

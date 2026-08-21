@@ -281,6 +281,13 @@ CREATE TABLE IF NOT EXISTS groups (
     added_ts INTEGER NOT NULL DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS perks (
+    user_id INTEGER NOT NULL,
+    key     TEXT NOT NULL,
+    lvl     INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, key)
+);
+
 -- ---------------------------------------------------------------- KLAN SAVAŞI
 -- Kişisel haftalık sezon puanı (klan değişse de oyuncuda kalır)
 CREATE TABLE IF NOT EXISTS war_points (

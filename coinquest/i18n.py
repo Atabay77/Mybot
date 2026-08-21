@@ -117,23 +117,17 @@ STR: dict[str, dict[str, str]] = {
                "1️⃣ Oýnaýarsyň, teňňe ýygnaýarsyň\n"
                "2️⃣ Teňňäni pula öwürýärsiň ({coins} 🪙 = 1.00 {cur})\n"
                "3️⃣ Günde iň köp {cap} öwrüp bolýar\n"
-               "4️⃣ {min} bolanda pul soraýarsyň</blockquote>\n\n"
-               "<i>Günlük çäk sebäpli {min} iň az 8 günde ýygnanýar. "
-               "Ýagny her gün gelip oýnamaly 😊</i>"),
+               "4️⃣ {min} bolanda pul soraýarsyň</blockquote>"),
         "ru": ("<blockquote><b>Как это работает?</b>\n"
                "1️⃣ Играешь, копишь монеты\n"
                "2️⃣ Меняешь монеты на деньги ({coins} 🪙 = 1.00 {cur})\n"
                "3️⃣ В день можно обменять максимум {cap}\n"
-               "4️⃣ Набрал {min} — запрашиваешь выплату</blockquote>\n\n"
-               "<i>Из-за дневного лимита {min} копится минимум 8 дней. "
-               "То есть надо заходить каждый день 😊</i>"),
+               "4️⃣ Набрал {min} — запрашиваешь выплату</blockquote>"),
         "tr": ("<blockquote><b>Nasıl çalışır?</b>\n"
                "1️⃣ Oynarsın, coin toplarsın\n"
                "2️⃣ Coini paraya çevirirsin ({coins} 🪙 = 1.00 {cur})\n"
                "3️⃣ Günde en fazla {cap} çevirebilirsin\n"
-               "4️⃣ {min} olunca ödeme istersin</blockquote>\n\n"
-               "<i>Günlük limit yüzünden {min} en az 8 günde dolar. "
-               "Yani her gün gelip oynaman lazım 😊</i>"),
+               "4️⃣ {min} olunca ödeme istersin</blockquote>"),
     },
     "m_conv":  {"tk": "🔁 {coins} teňňe ➜ {money}", "ru": "🔁 {coins} монет ➜ {money}",
                 "tr": "🔁 {coins} coin ➜ {money}"},
@@ -368,9 +362,9 @@ STR: dict[str, dict[str, str]] = {
                  "tr": "💰 <b>Toplanmaya hazır: {amount} 🪙</b> ({cycles} döngü)"},
     "mn_next": {"tk": "⏳ Indiki ýygnama: {time}", "ru": "⏳ Следующий сбор: {time}",
                 "tr": "⏳ Sonraki toplama: {time}"},
-    "mn_full": {"tk": "⚠️ Kassa doldy! Ýygnamasaň köpelmez.",
-                "ru": "⚠️ Касса заполнена! Пока не соберёшь, больше не копится.",
-                "tr": "⚠️ Kasa doldu! Toplamazsan daha fazla birikmez."},
+    "mn_full": {"tk": "🛑 <b>Kassa doldy — magdan durdy!</b> Ýygnasaň ýene işlär.",
+                "ru": "🛑 <b>Касса полна — добыча остановлена!</b> Забери, и она снова заработает.",
+                "tr": "🛑 <b>Kasa doldu — üretim durdu!</b> Topla ki tekrar çalışsın."},
     "mn_collect": {"tk": "💰 KASSANY ÝYGNA", "ru": "💰 СОБРАТЬ", "tr": "💰 KASAYI TOPLA"},
     "mn_got": {"tk": "💰 +{amount} 🪙 ýygnadyň! ({cycles} tapgyr)",
                "ru": "💰 Собрано +{amount} 🪙! ({cycles} циклов)",
@@ -393,9 +387,12 @@ STR: dict[str, dict[str, str]] = {
                   "tr": "✅ {name} alındı! Artık ×{qty}  •  +{power} 🪙/4s"},
     "mn_level": {"tk": "🔒 {lvl}-nji dereje gerek.", "ru": "🔒 Нужен {lvl} уровень.",
                  "tr": "🔒 Seviye {lvl} gerekiyor."},
-    "mn_how": {"tk": "<i>Her {hours} sagatda bir kassany ýygna. Iň köp {max} tapgyr birigýär.</i>",
-               "ru": "<i>Собирай кассу каждые {hours} часа. Копится максимум {max} циклов.</i>",
-               "tr": "<i>Her {hours} saatte bir kasayı topla. En fazla {max} döngü birikir.</i>"},
+    "mn_how": {"tk": "<i>Kassa {hours} sagatda dolýar we DURÝAR. Ýygnamasaň işlemeýär —"
+                     " her {hours} sagatdan gelip ýygna.</i>",
+               "ru": "<i>Касса наполняется за {hours} часа и ОСТАНАВЛИВАЕТСЯ. Пока не заберёшь,"
+                     " добыча не идёт — заходи каждые {hours} часа.</i>",
+               "tr": "<i>Kasa {hours} saatte dolar ve DURUR. Boşaltmadan üretim devam etmez —"
+                     " her {hours} saatte bir gelip topla.</i>"},
 
     # ---------- UYARILAR ----------
     "no_money": {"tk": "❌ Teňňäň ýetenok!\nGerek: {need} 🪙\nSende: {have} 🪙",
@@ -606,6 +603,38 @@ STR: dict[str, dict[str, str]] = {
                     "tr": "İşletme kasası dolunca"},
     "nt_type_energy": {"tk": "Energiýaň dolanda", "ru": "Когда энергия восстановилась",
                        "tr": "Enerjin dolunca"},
+
+    # ---------- USTALIKLAR (kalıcı yükseltmeler) ----------
+    "b_perks": {"tk": "⭐ Ussatlyk", "ru": "⭐ Мастерство", "tr": "⭐ Ustalık"},
+    "pk_toast": {"tk": "⭐ Ussatlyk", "ru": "⭐ Мастерство", "tr": "⭐ Ustalık"},
+    "pk_title": {"tk": "⭐ <b>USSATLYK — HEMIŞELIK GOWULANDYRMALAR</b>",
+                 "ru": "⭐ <b>МАСТЕРСТВО — ПОСТОЯННЫЕ УЛУЧШЕНИЯ</b>",
+                 "tr": "⭐ <b>USTALIK — KALICI YÜKSELTMELER</b>"},
+    "pk_intro": {"tk": "Bir gezek alsaň hemişelik seniňki — ýitmeýär, döwülmeýär.\n"
+                       "Teňňäňi şu ýere harçlasaň, her oýunda peýdasyny görersiň.",
+                 "ru": "Купил один раз — твоё навсегда: не теряется и не ломается.\n"
+                       "Потратишь монеты сюда — почувствуешь пользу в каждой игре.",
+                 "tr": "Bir kez alınca sonsuza kadar senin — kaybolmaz, kırılmaz.\n"
+                       "Coinini buraya harcarsan her oyunda faydasını görürsün."},
+    "pk_level": {"tk": "Dereje", "ru": "Уровень", "tr": "Seviye"},
+    "pk_now": {"tk": "Häzir", "ru": "Сейчас", "tr": "Şu an"},
+    "pk_next": {"tk": "Indiki derejede", "ru": "На следующем уровне", "tr": "Sonraki seviyede"},
+    "pk_cost": {"tk": "Bahasy", "ru": "Цена", "tr": "Fiyatı"},
+    "pk_have": {"tk": "Sende bar", "ru": "У тебя есть", "tr": "Sende olan"},
+    "pk_bought": {"tk": "✅ {name} {lvl}-nji dereje boldy!\n{effect}",
+                  "ru": "✅ {name} улучшено до уровня {lvl}!\n{effect}",
+                  "tr": "✅ {name} {lvl}. seviyeye yükseldi!\n{effect}"},
+    "pk_maxed": {"tk": "🏆 {name} iň ýokary derejede — hemmesi alyndy.",
+                 "ru": "🏆 {name} на максимуме — всё улучшено.",
+                 "tr": "🏆 {name} en yüksek seviyede — hepsi alındı."},
+    "pk_is_max": {"tk": "🏆 Bu ussatlyk doly açyldy.", "ru": "🏆 Это мастерство уже максимальное.",
+                  "tr": "🏆 Bu ustalık zaten en üst seviyede."},
+    "pk_confirm_title": {"tk": "TASSYKLA", "ru": "ПОДТВЕРДИ", "tr": "ONAYLA"},
+    "pk_b_buy": {"tk": "✅ Satyn al ({price} 🪙)", "ru": "✅ Купить ({price} 🪙)",
+                 "tr": "✅ Satın al ({price} 🪙)"},
+    "pk_b_yes": {"tk": "✅ Hawa, satyn al", "ru": "✅ Да, купить", "tr": "✅ Evet, satın al"},
+    "pk_b_no": {"tk": "❌ Goý", "ru": "❌ Отмена", "tr": "❌ Vazgeç"},
+    "pk_b_back": {"tk": "⬅️ Ussatlyklar", "ru": "⬅️ Мастерство", "tr": "⬅️ Ustalıklar"},
 }
 
 

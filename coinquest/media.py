@@ -47,9 +47,14 @@ SCREENS = {
     "bigwin": "kazandin",
     "miners": "madenler",
 }
+SCREENS["perks"] = "ustalik"
 # her madencinin kendi görseli: images/miner_m01.jpg ... miner_m15.jpg
 for _i in range(1, 16):
     SCREENS[f"miner_m{_i:02d}"] = f"miner_m{_i:02d}"
+# her canavarın kendi görseli: images/boss_1.jpg ... boss_9.jpg
+# (bkz. images/BOSS-PROMPTLAR.md — hepsi ejderha olmasın diye ayrı ayrı)
+for _i in range(1, 10):
+    SCREENS[f"boss_{_i}"] = f"boss_{_i}"
 
 # Telegram bir kez yükledikten sonra file_id'yi saklarız (tekrar yükleme olmasın)
 _file_ids: dict[str, str] = {}

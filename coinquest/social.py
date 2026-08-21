@@ -14,6 +14,7 @@ import economy
 import events
 import i18n
 import items
+import perks
 import ui
 import war
 
@@ -65,7 +66,7 @@ def profile_text(user_id: int) -> str:
         f"🛡 {items.label(armor['item_key'], armor['item_lvl']) if armor else '—'}\n"
         f"🐾 {items.label(pet['item_key'], pet['item_lvl']) if pet else '—'}</blockquote>",
         f"<blockquote>🎮 Oyun: <b>{ui.fmt(user['games'])}</b>  (kazanma %{winrate:.0f})\n"
-        f"⚔️ Düello: <b>{user['pvp_wins']}</b> galibiyet / {user['pvp_losses']} yenilgi\n"
+        f"⚔️ Düello: <b>{user['pvp_wins']}W</b> / {user['pvp_losses']}L\n"
         f"🐉 Canavar vuruşu: {user['boss_kills']}\n"
         f"💥 En büyük kazanç: {ui.fmt(user['biggest_win'])} 🪙\n"
         f"📅 Seri: <b>{user['streak']}</b> gün   👥 Davet: {user['refs']}\n"
@@ -148,7 +149,8 @@ def hourly(user_id: int) -> str:
 # ---------------------------------------------------------------------------
 
 def bank_limit(user) -> int:
-    return user["level"] * config.BANK_MAX_MULT * 1_000 + 50_000
+    return (user["level"] * config.BANK_MAX_MULT * 1_000 + 50_000
+            + perks.level(user["user_id"], "pk_bank") * 100_000)
 
 
 def bank_text(user_id: int) -> str:
@@ -530,7 +532,7 @@ def members_text(user_id: int, page: int = 0) -> str:
         lines.append(
             f"{ROLE_ICON.get(row['role'], '•')} <b>{ui.esc(row['first_name'])}</b> "
             f"({ROLE_NAME.get(row['role'], 'Üye')})\n"
-            f"<blockquote>🎚 Sv.{row['level']}  •  ⚔️ {row['pvp_wins']}G  •  "
+            f"<blockquote>🎚 Sv.{row['level']}  •  ⚔️ {row['pvp_wins']}W  •  "
             f"💰 bağış {ui.fmt(row['contributed'])} 🪙</blockquote>")
     return "\n".join(lines)
 
@@ -770,7 +772,7 @@ def top_text(kind: str = "rich") -> str:
     hidden = db.hidden_ids()
     marks = ",".join("?" * len(hidden)) if hidden else "0"
     rows = db.all_(
-        f"SELECT first_name, {column} AS v FROM users "
+        f"SELECT user_id, first_name, {column} AS v FROM users "
         f"WHERE banned=0 AND user_id NOT IN ({marks}) ORDER BY v DESC LIMIT 10",
         hidden)
     medals = ["🥇", "🥈", "🥉"] + ["🏅"] * 7
@@ -781,18 +783,78 @@ def top_text(kind: str = "rich") -> str:
         lines.append(f"{medals[i]} {ui.esc(row['first_name'])} — <b>{ui.fmt(row['v'])}</b> {unit}")
     if len(lines) == 1:
         lines.append("Henüz veri yok.")
+    lines.append("\n<i>👇 Bir oyuncuya dokunarak profilini görebilirsin</i>")
     return "\n".join(lines)
 
 
-def top_kb():
-    return ui.kb([
+def public_profile(viewer_id: int, target_id: int) -> tuple[str, object]:
+    """Sıralamadan tıklanan oyuncunun herkese açık kartı."""
+    target = db.get_user(target_id)
+    if target is None or target["banned"]:
+        return "Bu oyuncu bulunamadı.", ui.kb([[("⬅️ Geri", "s:top")]])
+    if db.staff_role(target_id):
+        return "Bu hesap gizli.", ui.kb([[("⬅️ Geri", "s:top")]])
+    clan = db.one("SELECT * FROM clans WHERE id=?", (target["clan_id"],)) if target["clan_id"] else None
+    stats = economy.power(target)
+    ach = int(db.scalar("SELECT COUNT(*) FROM achievements WHERE user_id=?", (target_id,)))
+    total = target["wins"] + target["losses"]
+    winrate = (target["wins"] / total * 100) if total else 0
+    days = max(0, (ui.now() - target["created_ts"]) // 86400)
+    text = (
+        f"👤 <b>{ui.name_of(target)}</b>"
+        + (f"  @{ui.esc(target['username'])}" if target["username"] else "") + "\n"
+        f"<i>{ui.esc(target['title'] or economy.title_for(target['level']))}</i>\n{ui.LINE}\n"
+        f"<blockquote>🎚 Seviye <b>{target['level']}</b>\n"
+        f"🏰 {clan['emblem'] + ' ' + ui.esc(clan['name']) if clan else 'Klansız'}\n"
+        f"📅 {days} gündür oynuyor</blockquote>\n"
+        f"<blockquote>⚔️ Düello: <b>{target['pvp_wins']}W</b> / {target['pvp_losses']}L\n"
+        f"🎮 Oyun: <b>{ui.fmt(target['games'])}</b>  (kazanma %{winrate:.0f})\n"
+        f"💥 En büyük kazanç: {ui.fmt(target['biggest_win'])} 🪙\n"
+        f"🐉 Canavar vuruşu: {target['boss_kills']}\n"
+        f"🏅 Başarım: {ach}/{len(events.ACHIEVEMENTS)}\n"
+        f"⭐ Bu haftaki puanı: {ui.fmt(war.my_points(target_id))}</blockquote>\n"
+        f"<blockquote>⚔️ Saldırı <b>{stats['atk']}</b>   🛡 Savunma <b>{stats['dfn']}</b>\n"
+        f"❤️ Can <b>{stats['hp']}</b>   💥 Kritik <b>%{stats['crit'] * 100:.0f}</b></blockquote>"
+    )
+    rows = []
+    if viewer_id != target_id:
+        rows.append([("⚔️ Düelloya çağır", "pvp:menu")])
+    rows.append([("🏆 Sıralama", "s:top"), ("🏠 Menü", "m:main")])
+    return text, ui.kb(rows)
+
+
+def top_players(kind: str = "rich") -> list:
+    """Sıralamadaki oyuncular — isimleri butona çevirmek için."""
+    if kind == "clan":
+        return []
+    _title, column, _unit = TOPS.get(kind, TOPS["rich"])
+    hidden = db.hidden_ids()
+    marks = ",".join("?" * len(hidden)) if hidden else "0"
+    return db.all_(
+        f"SELECT user_id, first_name, {column} AS v FROM users "
+        f"WHERE banned=0 AND {column} > 0 AND user_id NOT IN ({marks}) "
+        f"ORDER BY v DESC LIMIT 10", hidden)
+
+
+def top_kb(kind: str = "rich"):
+    rows = []
+    medals = ["🥇", "🥈", "🥉"] + ["🏅"] * 7
+    line = []
+    for i, row in enumerate(top_players(kind)):
+        line.append((f"{medals[i]} {row['first_name'][:12]}", f"s:pf:{row['user_id']}"))
+        if len(line) == 2:
+            rows.append(line); line = []
+    if line:
+        rows.append(line)
+    rows += [
         [("🔥 Haftalık Oyuncu", "w:top:p:0"), ("⚔️ Klan Savaşı", "w:top:c:0")],
         [("💰 Zengin", "s:top:rich"), ("🎚 Seviye", "s:top:level")],
         [("⚔️ PVP", "s:top:pvp"), ("💥 Vuruş", "s:top:win")],
         [("🎮 Oyun", "s:top:games"), ("🐉 Boss", "s:top:boss")],
         [("🏰 Klanlar", "s:top:clan")],
         [("🏠 Menü", "m:main")],
-    ])
+    ]
+    return ui.kb(rows)
 
 
 # ---------------------------------------------------------------------------
@@ -925,7 +987,11 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await ui.safe_edit(query, bank_text(user_id), bank_kb())
     elif action == "top":
         kind = parts[2] if len(parts) > 2 else "rich"
-        await ui.safe_edit(query, top_text(kind), top_kb())
+        await ui.safe_edit(query, top_text(kind), top_kb(kind))
+    elif action == "pf":
+        target_id = int(parts[2]) if len(parts) > 2 else user_id
+        text, kbd = public_profile(user_id, target_id)
+        await ui.safe_edit(query, text, kbd)
     elif action == "clan":
         await ui.safe_edit(query, clan_text(user_id), clan_kb(user_id))
     elif action == "clist":
@@ -1145,7 +1211,7 @@ async def cmd_clan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def cmd_top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await ui.send(update, top_text("rich"), top_kb())
+    await ui.send(update, top_text("rich"), top_kb("rich"))
 
 
 async def cmd_ref(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

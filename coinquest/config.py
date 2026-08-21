@@ -45,7 +45,7 @@ HOURLY_REWARD = 350
 WORK_COOLDOWN = 45 * 60
 MINE_COOLDOWN = 20 * 60
 ROB_COOLDOWN = 90 * 60
-SKILL_COOLDOWN = 90         # bilgi/matematik/kelime oyunları arası bekleme
+SKILL_COOLDOWN = 10         # bilgi/matematik/kelime oyunları arası bekleme
 MATH_SECONDS = 5            # matematik için süre
 WORD_SECONDS = 12           # kelime bulmaca süresi
 QUIZ_SECONDS = 10           # bilgi sorusu süresi
@@ -64,7 +64,7 @@ BOSS_INTERVAL_MIN = 180     # kaç dakikada bir boss doğar
 BOSS_DURATION_MIN = 150
 BOSS_ATTACK_ENERGY = 5
 LOTTERY_TICKET_PRICE = 750
-LOTTERY_INTERVAL_MIN = 240
+LOTTERY_INTERVAL_MIN = 720   # 12 saat
 LOTTERY_SEED = 5_000        # her çekiliş sonrası havuza eklenen taban
 BUSINESS_COLLECT_SEC = 4 * 3600
 

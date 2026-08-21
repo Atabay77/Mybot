@@ -7,6 +7,7 @@ from typing import Optional
 
 import config
 import db
+import perks
 import items
 
 LEVEL_TITLES = [
@@ -111,15 +112,25 @@ def title_for(level: int) -> str:
 
 # ---------------- enerji ----------------
 
-def max_energy(level: int) -> int:
-    return min(120, config.ENERGY_MAX_BASE + level * 2)
+def max_energy(level: int, user_id: int = 0) -> int:
+    base = min(120, config.ENERGY_MAX_BASE + level * 2)
+    if user_id:
+        base += perks.level(user_id, "pk_energy") * 5      # Enerji Deposu ustalığı
+    return base
+
+
+def regen_sec(user_id: int = 0) -> int:
+    """Bir enerjinin dolma süresi. 'Hızlı Dinlenme' ustalığı kısaltır."""
+    if not user_id:
+        return config.ENERGY_REGEN_SEC
+    return max(60, config.ENERGY_REGEN_SEC - perks.level(user_id, "pk_regen") * 8)
 
 
 def sync_energy(user_id: int) -> int:
     user = db.get_user(user_id)
     if user is None:
         return 0
-    mx = max_energy(user["level"])
+    mx = max_energy(user["level"], user_id)
     if user["energy_unlim"]:
         if user["energy"] < mx:
             db.upd(user_id, energy=mx, energy_ts=int(time.time()))
@@ -128,11 +139,12 @@ def sync_energy(user_id: int) -> int:
     if user["energy"] >= mx:
         db.upd(user_id, energy=mx, energy_ts=now)
         return mx
-    gain = (now - user["energy_ts"]) // config.ENERGY_REGEN_SEC
+    hiz = regen_sec(user_id)
+    gain = (now - user["energy_ts"]) // hiz
     if gain <= 0:
         return user["energy"]
     new = min(mx, user["energy"] + int(gain))
-    new_ts = now if new >= mx else user["energy_ts"] + int(gain) * config.ENERGY_REGEN_SEC
+    new_ts = now if new >= mx else user["energy_ts"] + int(gain) * hiz
     db.upd(user_id, energy=new, energy_ts=new_ts)
     return new
 
@@ -180,18 +192,19 @@ def pet_bonus(user: sqlite3.Row, field: str) -> float:
 
 def income_bonus(user: sqlite3.Row) -> float:
     """Oyun kazançlarına eklenen çarpan (0.15 = +%15)."""
-    return pet_bonus(user, "income") + min(0.10, user["level"] * 0.002) + clan_bonus(user)
+    return (pet_bonus(user, "income") + min(0.10, user["level"] * 0.002) + clan_bonus(user)
+            + perks.level(user["user_id"], "pk_income") * 0.02)
 
 
 def xp_bonus(user: sqlite3.Row) -> float:
-    bonus = pet_bonus(user, "xp")
+    bonus = pet_bonus(user, "xp") + perks.level(user["user_id"], "pk_xp") * 0.05
     if user["xpboost_until"] > time.time():
         bonus += 1.0
     return bonus
 
 
 def luck(user: sqlite3.Row) -> float:
-    val = pet_bonus(user, "luck")
+    val = pet_bonus(user, "luck") + perks.level(user["user_id"], "pk_luck") * 0.01
     if user["luck_until"] > time.time():
         val += 0.12
     return min(0.45, val)
@@ -220,7 +233,8 @@ def power(user: sqlite3.Row) -> dict:
 
 
 def max_bet(user: sqlite3.Row) -> int:
-    return min(config.BET_CAP_MAX, 5_000 + user["level"] * config.BET_CAP_BASE)
+    extra = perks.level(user["user_id"], "pk_bet") * 25_000
+    return min(config.BET_CAP_MAX + extra, 5_000 + user["level"] * config.BET_CAP_BASE + extra)
 
 
 def payout(user: sqlite3.Row, amount: int) -> int:

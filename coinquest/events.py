@@ -15,6 +15,7 @@ import db
 import economy
 import i18n
 import items
+import media
 import ui
 import war
 
@@ -165,6 +166,20 @@ BOSS_NAMES = [
     ("Gölge Lordu Nyx", "🌑"), ("Kum Solucanı Shai", "🪱"), ("Kıyamet Golemi", "🗿"),
     ("Cadı Kraliçe Morgana", "🧙‍♀️"), ("Kraken", "🐙"), ("Alev Şeytanı Ifrit", "🔥"),
 ]
+
+
+def boss_screen(boss) -> str:
+    """Bu canavarın kendi görsel anahtarı (boss_1 ... boss_9).
+
+    BOSS_NAMES listesindeki sıraya göre. Resim yoksa 'boss' ortak resmine düşer.
+    """
+    if not boss:
+        return "boss"
+    for i, (name, _emoji) in enumerate(BOSS_NAMES, start=1):
+        if name == boss["name"]:
+            key = f"boss_{i}"
+            return key if (media.cached(key) or media.path(key)) else "boss"
+    return "boss"
 
 
 def active_boss():
@@ -396,11 +411,19 @@ async def job_lottery(context: ContextTypes.DEFAULT_TYPE) -> None:
         f"💰 Ödül: <b>{ui.fmt(rnd['pot'])}</b> 🪙 + 1 💎\n\n"
         f"Yeni çekiliş başladı! /piyango"
     )
+    # Gruplara SADECE boss duyurusu gider. Çekiliş sonucu kazanana özelden yazılır,
+    # bilet alan diğer oyunculara da tek tek bildirilir.
     try:
         await context.bot.send_message(winner, text, parse_mode=ParseMode.HTML)
     except Exception:
         pass
-    await _broadcast_groups(context, text)
+    for row in db.all_("SELECT user_id FROM lottery_tickets WHERE round_no=? AND user_id<>?",
+                       (rnd["round_no"], winner)):
+        try:
+            await context.bot.send_message(row["user_id"], text, parse_mode=ParseMode.HTML)
+        except Exception:
+            pass
+        await asyncio.sleep(0.05)
 
 
 async def job_interest(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -490,7 +513,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         boss = active_boss()
         rows = [[("⚔️ SALDIR", "ev:hit")]] if boss else []
         rows.append([("🔄 Yenile", "ev:boss"), ("🏠 Menü", "m:main")])
-        await ui.nav(query, "boss", boss_panel_text(boss), ui.kb(rows))
+        await ui.nav(query, boss_screen(boss), boss_panel_text(boss), ui.kb(rows))
     elif action == "hit":
         res = attack_boss(user_id)
         if not res["ok"]:
@@ -537,7 +560,7 @@ async def cmd_boss(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     boss = active_boss()
     rows = [[("⚔️ SALDIR", "ev:hit")]] if boss else []
     rows.append([("🔄 Yenile", "ev:boss")])
-    await ui.send(update, boss_panel_text(boss), ui.kb(rows))
+    await ui.screen(update, boss_screen(boss), boss_panel_text(boss), ui.kb(rows))
 
 
 async def cmd_lottery(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

@@ -25,6 +25,7 @@ import media
 import miners
 import notify
 import party
+import perks
 import pvp
 import social
 import support
@@ -441,6 +442,7 @@ def build_app() -> Application:
     app.add_handler(CommandHandler(["madenler", "miners", "magdan"], miners.cmd_miners))
     app.add_handler(CommandHandler(["destek", "support", "komek"], support.cmd_support))
     app.add_handler(CommandHandler(["savas", "war", "sezon"], war.cmd_war))
+    app.add_handler(CommandHandler(["ustalik", "perk"], perks.cmd_perks))
     app.add_handler(CommandHandler(["bildirim", "habar"], notify.cmd_notify))
     app.add_handler(CommandHandler("admin", admin.cmd_admin))
 
@@ -460,6 +462,7 @@ def build_app() -> Application:
     app.add_handler(CallbackQueryHandler(cb(admin.on_callback), pattern=r"^ad:"))
     app.add_handler(CallbackQueryHandler(cb(war.on_callback), pattern=r"^w:"))
     app.add_handler(CallbackQueryHandler(cb(notify.on_callback), pattern=r"^nt:"))
+    app.add_handler(CallbackQueryHandler(cb(perks.on_callback), pattern=r"^pk:"))
 
     # yazı + medya (destek ve reklam için)
     media_filter = (filters.TEXT | filters.PHOTO | filters.VIDEO | filters.ANIMATION

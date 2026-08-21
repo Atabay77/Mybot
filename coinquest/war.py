@@ -3,7 +3,7 @@
 
 Oyuncular zaten yaptıkları işlerden (oyun, PVP, boss, görev, bağış...) sezon
 puanı kazanır. Puan hem kişisel haftalık sıralamayı hem de klanının savaş
-puanını besler. Pazartesi 00:00'da (Aşgabat saati) hafta kapanır, ilk 10 oyuncu
+puanını besler. Pazartesi 00:00'da (Aşgabat saati) hafta kapanır, ilk 3 oyuncu
 ve ilk 3 klan ödül alır.
 
 Bu modül `social` veya `events` modüllerini üst seviyede import ETMEZ
@@ -92,7 +92,7 @@ SRC = {
     "miner":   (10, 0, 40),
     "biz":     (8, 0, 32),
     "donate":  (1, 100_000, 100),
-    "ref":     (150, 0, 450),
+    "ref":     (50, 0, 150),
 }
 
 # Ekranda gösterim sırası ve adı
@@ -272,27 +272,21 @@ def _clan_of(user_id: int):
 # ÖDÜLLER
 # ---------------------------------------------------------------------------
 # (coin, elmas, TMT kuruş)
+# Sadece ilk 3 ödül alır. Ödül az sayıda kişiye gitsin ki değerli olsun.
 PLAYER_REWARDS = [
-    (250_000, 25, config.WAR_TMT_1),
-    (150_000, 15, config.WAR_TMT_2),
-    (100_000, 10, config.WAR_TMT_3),
-    (60_000, 6, 0),
-    (60_000, 6, 0),
-    (30_000, 3, 0),
-    (30_000, 3, 0),
-    (30_000, 3, 0),
-    (30_000, 3, 0),
-    (30_000, 3, 0),
+    (120_000, 12, config.WAR_TMT_1),
+    (60_000, 6, config.WAR_TMT_2),
+    (30_000, 3, config.WAR_TMT_3),
 ]
-PLAYER_MIN = 100                # ilk 10 ödülü için en az bu kadar puan gerekir
-PARTICIPATION_MIN = 300         # bu kadar puan toplayan herkese
-PARTICIPATION_COINS = 5_000
+PLAYER_MIN = 300                # ödül için en az bu kadar puan gerekir
+PARTICIPATION_MIN = 0           # katılım ödülü yok
+PARTICIPATION_COINS = 0
 
 # (klan kasası, üyelere dağıtılacak havuz, ilk 3 katkıcıya elmas)
 CLAN_REWARDS = [
-    (200_000, 300_000, (20, 12, 8)),
-    (120_000, 180_000, (12, 8, 4)),
-    (80_000, 120_000, (8, 5, 3)),
+    (80_000, 100_000, (10, 6, 3)),
+    (40_000, 50_000, (6, 3, 2)),
+    (20_000, 25_000, (3, 2, 1)),
 ]
 
 
@@ -398,6 +392,16 @@ def board_text(kind: str, page: int = 0, user_id: int = 0) -> str:
 
 def board_kb(kind: str, page: int = 0, user_id: int = 0):
     lang = i18n.lang_of(user_id) if user_id else i18n.DEFAULT
+    rows = []
+    if kind == "p":                     # oyuncu isimleri profil butonu olur
+        medals = ["🥇", "🥈", "🥉"] + ["🏅"] * 7
+        line = []
+        for i, r in enumerate(player_board(limit=PAGE, offset=page * PAGE)):
+            line.append((f"{medals[i]} {(r['name'] or '?')[:12]}", f"s:pf:{r['user_id']}"))
+            if len(line) == 2:
+                rows.append(line); line = []
+        if line:
+            rows.append(line)
     other = "p" if kind == "c" else "c"
     other_label = i18n.t(lang, "w_b_board_p" if other == "p" else "w_b_board_c")
     nav = []
@@ -408,9 +412,10 @@ def board_kb(kind: str, page: int = 0, user_id: int = 0):
         "SELECT COUNT(*) FROM war_points WHERE week=? AND points>0", (week_key(),), 0))
     if (page + 1) * PAGE < count:
         nav.append(("➡️", f"w:top:{kind}:{page + 1}"))
-    return ui.kb([nav,
-                  [(other_label, f"w:top:{other}:0")],
-                  [(i18n.t(lang, "w_b_war"), "w:menu"), (i18n.t(lang, "b_home"), "m:main")]])
+    rows += [nav,
+             [(other_label, f"w:top:{other}:0")],
+             [(i18n.t(lang, "w_b_war"), "w:menu"), (i18n.t(lang, "b_home"), "m:main")]]
+    return ui.kb(rows)
 
 
 def rules_text(lang: str) -> str:
@@ -639,11 +644,8 @@ async def _announce(context: ContextTypes.DEFAULT_TYPE, result: dict) -> None:
         except Exception:
             pass
         await asyncio.sleep(0.05)
-    try:
-        import events                                   # geç import: döngü olmasın
-        await events._broadcast_groups(context, summary)
-    except Exception:
-        pass
+    # Gruplara duyuru YOK: sahibin isteğiyle gruplara sadece boss bildirimi gidiyor.
+    # Sezon sonucu kazananlara yukarıda özelden iletildi.
 
 
 # ---------------------------------------------------------------------------

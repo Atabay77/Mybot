@@ -222,7 +222,7 @@ def user_card(target_id: int, viewer_id: int) -> tuple[str, object]:
         f"🎚 Seviye {user['level']}   ⚡ {user['energy']}"
         + ("  <b>∞</b>" if user["energy_unlim"] else "") + "\n"
         f"📅 {cash.days_old(user)} günlük   🔥 {user['streak']} gün seri</blockquote>\n"
-        f"🎮 {ui.fmt(user['games'])} oyun   ⚔️ {user['pvp_wins']}G/{user['pvp_losses']}Y\n"
+        f"🎮 {ui.fmt(user['games'])} oyun   ⚔️ {user['pvp_wins']}W/{user['pvp_losses']}L\n"
         f"👥 Davet: {user['refs']}   🤖 Koruma: {'✅' if user['captcha_ok'] else '❌'}\n"
         f"🚫 Ban: {'<b>EVET</b>' if user['banned'] else 'hayır'}"
     )
@@ -240,7 +240,7 @@ def user_card(target_id: int, viewer_id: int) -> tuple[str, object]:
         rows.append([("⚡ Enerji ver", f"ad:pick:energy:{target_id}")])
     if guard(viewer_id, "ban"):
         rows.append([("✅ Ban kaldır", f"ad:uunban:{target_id}") if user["banned"]
-                     else ("🚫 Banla", f"ad:uban:{target_id}")])
+                     else ("🚫 Banla", f"ad:banask:{target_id}")])
     rows.append([("💬 Mesaj gönder", f"ad:umsg:{target_id}")])
     if role_of(viewer_id) == "owner":
         if role:
@@ -277,14 +277,15 @@ def amount_kb(kind: str, target_id: int):
         rows.append(line)
     if kind == "coin":
         rows.append([("➖ 100.000 al", f"ad:give:coin:{target_id}:-100000"),
-                     ("🧹 Sıfırla", f"ad:give:coin:{target_id}:zero")])
+                     ("🧹 Sıfırla", f"ad:zero:coin:{target_id}")])
     if kind == "tmt":
-        rows.append([("🧹 Sıfırla", f"ad:give:tmt:{target_id}:zero")])
+        rows.append([("🧹 Sıfırla", f"ad:zero:tmt:{target_id}")])
     if kind == "energy":
         user = db.get_user(target_id)
         rows.append([("🔋 Tam doldur", f"ad:give:energy:{target_id}:full")])
         rows.append([("♾ Sınırsız enerji: " + ("AÇIK ✅" if user and user["energy_unlim"] else "kapalı"),
                       f"ad:give:energy:{target_id}:unlim")])
+    rows.append([("✏️ Elle yaz (istediğin miktar)", f"ad:manual:{kind}:{target_id}")])
     rows.append([("⬅️ Geri", f"ad:card:{target_id}")])
     return ui.kb(rows)
 
@@ -490,6 +491,46 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         ), amount_kb(kind, target))
         return
 
+    if action == "manual":
+        kind, target = parts[2], int(parts[3])
+        need = {"coin": "money", "gem": "money", "tmt": "cash", "energy": "energy"}[kind]
+        if await deny(need):
+            return
+        _v, emoji, name = AMOUNTS[kind]
+        context.user_data["await"] = {"kind": "admin_amount", "give": kind, "target": target}
+        user = db.get_user(target)
+        ipucu = {"coin": "örn. 250000  ya da  -50000 (almak için)",
+                 "gem": "örn. 25  ya da  -5",
+                 "tmt": "kuruş olarak yaz: 250 = 2.50 TMT",
+                 "energy": "örn. 75"}[kind]
+        await ui.answer(query)
+        await ui.safe_edit(query, (
+            f"✏️ <b>{name.upper()} — ELLE MİKTAR</b>\n{ui.LINE}\n"
+            f"👤 {ui.name_of(user)}\n\n"
+            f"Şimdi miktarı yaz ve gönder.\n<blockquote>{ipucu}</blockquote>\n"
+            "<i>Eksi sayı yazarsan hesaptan düşer.</i>"
+        ), ui.kb([[("⬅️ Vazgeç", f"ad:pick:{kind}:{target}")]]))
+        return
+
+    if action == "zero":
+        kind, target = parts[2], int(parts[3])
+        need = {"coin": "money", "tmt": "cash"}[kind]
+        if await deny(need):
+            return
+        user = db.get_user(target)
+        _v, emoji, name = AMOUNTS[kind]
+        simdi = cash.money(user["tmt"]) if kind == "tmt" else ui.fmt(user["coins"])
+        await ui.answer(query)
+        await ui.safe_edit(query, (
+            f"⚠️ <b>SIFIRLAMA — ONAY GEREKİYOR</b>\n{ui.LINE}\n"
+            f"👤 {ui.name_of(user)}  (<code>{target}</code>)\n"
+            f"<blockquote>{emoji} Mevcut {name}: <b>{simdi}</b>\n"
+            f"Bu tamamen SIFIRLANACAK.</blockquote>\n"
+            "Bu işlem geri alınamaz. Emin misin?"
+        ), ui.kb([[("✅ Evet, sıfırla", f"ad:give:{kind}:{target}:zero")],
+                  [("❌ Vazgeç", f"ad:card:{target}")]]))
+        return
+
     if action == "give":
         kind, target, value = parts[2], int(parts[3]), parts[4]
         need = {"coin": "money", "gem": "money", "tmt": "cash", "energy": "energy"}[kind]
@@ -499,6 +540,11 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         if not user:
             await ui.answer(query, "Oyuncu yok.", alert=True)
             return
+        # elle girilen eksi miktarlar bakiyeyi sıfırın altına düşürmesin
+        if value not in ("zero", "full", "unlim") and int(value) < 0:
+            mevcut = {"coin": user["coins"], "gem": user["gems"], "tmt": user["tmt"],
+                      "energy": user["energy"]}[kind]
+            value = str(max(int(value), -mevcut))
         notify = None
         if kind == "coin":
             if value == "zero":
@@ -549,6 +595,25 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
 
     # --- ban ---
+    if action == "banask":
+        if await deny("ban"):
+            return
+        target = int(parts[2])
+        if role_of(target):
+            await ui.answer(query, "⛔ Yetkili banlanamaz.", alert=True)
+            return
+        user = db.get_user(target)
+        await ui.answer(query)
+        await ui.safe_edit(query, (
+            f"⚠️ <b>BAN — ONAY GEREKİYOR</b>\n{ui.LINE}\n"
+            f"👤 {ui.name_of(user)}  (<code>{target}</code>)\n"
+            f"<blockquote>🪙 {ui.fmt(user['coins'])}  •  💵 {cash.money(user['tmt'])}\n"
+            f"🎮 {ui.fmt(user['games'])} oyun</blockquote>\n"
+            "Banlanan oyuncu bota hiç giremez. Emin misin?"
+        ), ui.kb([[("🚫 Evet, banla", f"ad:uban:{target}")],
+                  [("❌ Vazgeç", f"ad:card:{target}")]]))
+        return
+
     if action in ("uban", "uunban"):
         if await deny("ban"):
             return
@@ -817,7 +882,8 @@ def _msg_kind(msg) -> str:
 
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     pending = context.user_data.get("await")
-    if not pending or pending.get("kind") not in ("admin_bc", "admin_msg", "admin_find"):
+    if not pending or pending.get("kind") not in ("admin_bc", "admin_msg", "admin_find",
+                                                  "admin_amount"):
         return False
     user_id = update.effective_user.id
     if not is_staff(user_id):
@@ -826,6 +892,30 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     msg = update.message
     kind = pending["kind"]
     context.user_data.pop("await", None)
+
+    if kind == "admin_amount":
+        raw = (msg.text or "").strip().replace(" ", "").replace(".", "").replace(",", "")
+        neg = raw.startswith("-")
+        digits = raw.lstrip("+-")
+        if not digits.isdigit() or int(digits) == 0:
+            context.user_data["await"] = pending      # tekrar denesin
+            await ui.send(update, "Sadece sayı yaz (örn. 250000 veya -50000).",
+                          ui.kb([[("⬅️ Vazgeç", f"ad:pick:{pending['give']}:{pending['target']}")]]))
+            return True
+        value = -int(digits) if neg else int(digits)
+        gkind, target = pending["give"], pending["target"]
+        target_user = db.get_user(target)
+        _v, emoji, name = AMOUNTS[gkind]
+        gosterim = cash.money(abs(value)) if gkind == "tmt" else ui.fmt(abs(value))
+        islem = "EKLENECEK" if value > 0 else "DÜŞÜLECEK"
+        await ui.send(update, (
+            f"⚠️ <b>ONAY GEREKİYOR</b>\n{ui.LINE}\n"
+            f"👤 {ui.name_of(target_user)}  (<code>{target}</code>)\n"
+            f"<blockquote>{emoji} <b>{gosterim}</b> {name}\n{islem}</blockquote>\n"
+            "Emin misin?"
+        ), ui.kb([[("✅ Onayla", f"ad:give:{gkind}:{target}:{value}")],
+                  [("❌ Vazgeç", f"ad:card:{target}")]]))
+        return True
 
     if kind == "admin_bc":
         cur = db.run(
