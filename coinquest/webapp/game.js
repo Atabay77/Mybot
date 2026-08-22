@@ -309,142 +309,165 @@ const WEAPONS = {
   _def:     {len:1.25,w:0.12, col:COL.steel, blade:true, head:[0.15,0.75,0.05]},
 };
 
-/* Şövalye. Kutu yığını değil: konik uzuvlar, dirsek/diz bükümü, pelerin,
- * miğfer + sorguç. Duruşlar tamamen animasyon durumundan hesaplanıyor. */
+/* ŞÖVALYE — gerçek iskelet hiyerarşisi.
+ *
+ * Önemli: her parça KENDİ EKLEMİNDEN döner (kalça, diz, omuz, dirsek).
+ * Daha önce her kutu kendi merkezinden dönüyordu; eğilme/düşme açısı
+ * büyüyünce gövde dağılıyordu. Artık kol omuzdan, bacak kalçadan dönüyor.
+ *
+ * Ölçüler "kalça uzayında": kalça y=0, ayaklar y=-1.05, baş y=+0.95.
+ */
+const HIP_Y = 1.05;             // kalçanın yerden yüksekliği
+
+/** Eklemden sarkan uzuv. Döndürme eklemde olur. Çocuk eklem matrisini döner. */
+function limb(parent, jx, jy, jz, rx, rz, sx, sy, sz, color) {
+  let j = M4.ident();
+  if (rz) j = M4.mul(j, M4.rotZ(rz));
+  if (rx) j = M4.mul(j, M4.rotX(rx));
+  j = M4.mul(j, M4.trans(jx, jy, jz));
+  j = M4.mul(j, parent);
+  draw(MESH.box, M4.mul(M4.mul(M4.scale(sx, sy, sz), M4.trans(0, -sy / 2, 0)), j), color);
+  return j;
+}
+
+/** Merkezi verilen noktada duran kutu (gövde, kafa, kemer gibi). */
+function at(parent, cx, cy, cz, sx, sy, sz, color, rx, rz) {
+  let m = M4.scale(sx, sy, sz);
+  if (rz) m = M4.mul(m, M4.rotZ(rz));
+  if (rx) m = M4.mul(m, M4.rotX(rx));
+  m = M4.mul(m, M4.trans(cx, cy, cz));
+  draw(MESH.box, M4.mul(m, parent), color);
+}
+
 function drawFighter(f, col, colDark, anim) {
   const {x, z, yaw} = f;
-  const mv = anim.move;                 // 0..1 yumuşatılmış hareket miktarı
+  const mv = Math.min(1, anim.move);
   const ph = anim.walk;
-  const dead = anim.dead, dT = anim.deadT;
-  const atk = anim.attack;              // 0..1 vuruş ilerlemesi
-  const blk = anim.block;
-  const flinch = anim.hitT;
+  const dT = anim.deadT, dead = anim.dead;
+  const atk = anim.attack, blk = anim.block, flinch = anim.hitT;
 
-  // --- gövde duruşu ---
-  const breathe = Math.sin(anim.t * 1.9) * 0.022 * (1 - mv);
-  const bob = Math.abs(Math.sin(ph)) * 0.085 * mv;          // koşarken zıplama
-  let lean = mv * 0.20 + (atk > 0 ? Math.sin(atk * Math.PI) * 0.30 : 0)
-             - flinch * 0.35 + (blk ? 0.12 : 0);
-  let crouch = blk ? 0.13 : 0;
-  let baseY = bob + breathe - crouch;
-  let roll = 0;
-  if (dead) { lean = 0; baseY = -0.55 * dT; roll = -Math.PI * 0.46 * dT; }
+  // --- gövde duruşu (TEK bir kök dönüşü; parçalar buna asılı) ---
+  const breathe = Math.sin(anim.t * 1.9) * 0.02 * (1 - mv);
+  const bob = Math.abs(Math.sin(ph)) * 0.07 * mv;
+  let lean = mv * 0.16 - flinch * 0.30 + (blk ? 0.10 : 0);
+  if (atk > 0) lean += Math.sin(atk * Math.PI) * 0.22;
+  let roll = 0, y = HIP_Y + bob + breathe - (blk ? 0.12 : 0);
+  if (dead) { lean = 0; roll = -Math.PI * 0.47 * dT; y = HIP_Y - 0.58 * dT; }
 
-  const c = Math.cos(yaw), sn = Math.sin(yaw);
-  const P = (lx, ly, lz) => [x + lx*c + lz*sn, ly + baseY, z - lx*sn + lz*c];
-  const R = (px, pz) => [ (px||0) + lean, yaw, (pz||0) + roll ];
+  // kök: önce eğil/devril, sonra yöne dön, sonra dünyaya yerleş
+  let root = M4.rotX(lean);
+  root = M4.mul(root, M4.rotZ(roll));
+  root = M4.mul(root, M4.rotY(yaw));
+  root = M4.mul(root, M4.trans(x, y, z));
 
-  // --- gölge (hareketle hafif oynar) ---
   setMode(0);
-  const sh = 1.5 - bob * 1.2;
+  const sh = 1.45 - bob * 1.1;
   draw(MESH.disc, M4.mul(M4.scale(sh, 0.02, sh), M4.trans(x, 0.03, z)), [0.05,0.05,0.11]);
 
-  // --- bacaklar: kalça -> diz -> ayak ---
+  // --- BACAKLAR: kalça -> diz -> ayak ---
   for (const side of [-1, 1]) {
-    const sw = Math.sin(ph + (side > 0 ? Math.PI : 0)) * mv;
-    const knee = Math.max(0, -Math.cos(ph + (side > 0 ? Math.PI : 0))) * mv * 0.7;
-    const hipZ = sw * 0.34, hipRot = sw * 0.85;
-    // uyluk
-    box(P(side * 0.20, 0.72, hipZ * 0.5), [0.27, 0.55, 0.28], colDark, R(hipRot));
-    // baldır (dizden bükülü)
-    box(P(side * 0.20, 0.32 - knee * 0.05, hipZ * 0.95 - knee * 0.18),
-        [0.23, 0.52, 0.24], COL.leather, R(hipRot - knee));
-    // çizme
-    box(P(side * 0.20, 0.09, hipZ * 1.15 + 0.06), [0.28, 0.18, 0.42], COL.dark, R(hipRot * 0.3));
+    const p = ph + (side > 0 ? Math.PI : 0);
+    const hip = Math.sin(p) * mv * 0.85;
+    const knee = Math.max(0, -Math.cos(p)) * mv * 0.95;
+    const thigh = limb(root, side * 0.20, 0.02, 0, hip, 0, 0.27, 0.55, 0.29, colDark);
+    const shin = limb(thigh, 0, -0.55, 0, knee, 0, 0.23, 0.50, 0.25, COL.leather);
+    at(M4.mul(M4.trans(0, -0.50, 0), shin), 0, -0.08, 0.08, 0.28, 0.17, 0.42, COL.dark);
   }
 
-  // --- gövde: bel + göğüs (omuzlara doğru genişler) ---
-  box(P(0, 1.06, 0), [0.56, 0.34, 0.38], COL.leather, R());     // bel
-  box(P(0, 1.20, 0), [0.66, 0.14, 0.44], COL.gold, R());        // kemer
-  box(P(0, 1.50, 0), [0.80, 0.60, 0.46], col, R());             // göğüs zırhı
-  box(P(0, 1.52, 0.25), [0.34, 0.40, 0.06], COL.gold, R());     // göğüs arması
-
-  // --- pelerin (koşarken savrulur) ---
-  const capeSwing = -0.35 - mv * 0.55 - Math.sin(anim.t * 4 + ph) * 0.06 * mv;
-  box(P(0, 1.30, -0.30), [0.74, 0.92, 0.07], colDark, R(capeSwing));
-  box(P(0, 0.80, -0.30 + Math.sin(-capeSwing) * 0.55),
-      [0.66, 0.70, 0.06], colDark, R(capeSwing * 1.25));
-
-  // --- omuzluklar ---
-  for (const side of [-1, 1]) {
-    box(P(side * 0.50, 1.72, 0), [0.34, 0.28, 0.50], col, R(0, side * 0.30));
-    box(P(side * 0.52, 1.84, 0), [0.30, 0.10, 0.44], COL.gold, R(0, side * 0.30));
+  // --- GÖVDE ---
+  at(root, 0, 0.14, 0, 0.66, 0.15, 0.45, COL.gold);          // kemer
+  at(root, 0, 0.46, 0, 0.80, 0.60, 0.47, col);               // göğüs zırhı
+  at(root, 0, 0.48, 0.25, 0.34, 0.40, 0.06, COL.gold);       // arma
+  for (const side of [-1, 1]) {                              // omuzluk
+    at(root, side * 0.50, 0.70, 0, 0.34, 0.28, 0.50, col, 0, side * 0.28);
+    at(root, side * 0.52, 0.82, 0, 0.30, 0.10, 0.44, COL.gold, 0, side * 0.28);
   }
 
-  // --- kafa + miğfer ---
-  const headY = 2.02;
-  box(P(0, headY, 0), [0.40, 0.42, 0.40], COL.skin, R());
-  box(P(0, headY + 0.10, 0), [0.46, 0.30, 0.46], COL.steel, R());      // miğfer
-  box(P(0, headY + 0.02, 0.21), [0.30, 0.07, 0.06], COL.dark, R());    // vizör yarığı
-  box(P(0, headY + 0.32, -0.05), [0.09, 0.26, 0.30], col, R(0.25));    // sorguç
-  box(P(0, headY + 0.44, -0.16), [0.08, 0.18, 0.34], col, R(0.6));
+  // --- PELERİN: omuzdan asılı, koşarken savrulur ---
+  const capeA = 0.30 + mv * 0.60 + Math.sin(anim.t * 4.2 + ph) * 0.07 * mv;
+  const cape1 = limb(root, 0, 0.74, -0.26, capeA, 0, 0.76, 0.80, 0.06, colDark);
+  limb(cape1, 0, -0.80, 0, capeA * 0.55, 0, 0.66, 0.62, 0.05, colDark);
 
-  // --- kollar ---
-  // SOL kol: blokta kalkanı kaldırır, koşarken karşı salınır
+  // --- KAFA + MİĞFER ---
+  const neck = M4.mul(M4.trans(0, 0.78, 0), root);
+  const nod = -flinch * 0.35 + Math.sin(anim.t * 1.9) * 0.02;
+  at(neck, 0, 0.20, 0, 0.40, 0.42, 0.40, COL.skin, nod);
+  at(neck, 0, 0.30, 0, 0.46, 0.30, 0.46, COL.steel, nod);
+  at(neck, 0, 0.22, 0.21, 0.30, 0.07, 0.06, COL.dark, nod);
+  at(neck, 0, 0.52, -0.06, 0.09, 0.28, 0.30, col, 0.30 + nod);      // sorguç
+  at(neck, 0, 0.62, -0.20, 0.08, 0.18, 0.34, col, 0.70 + nod);
+
+  // --- SOL KOL (kalkan) ---
   {
-    const sw = Math.sin(ph + Math.PI) * mv;
-    const up = blk ? -1.15 : (-sw * 0.75);
-    const fx = blk ? -0.28 : -0.52, fy = blk ? 1.56 : 1.44, fz = blk ? 0.30 : sw * 0.22;
-    box(P(fx, fy, fz), [0.24, 0.46, 0.25], col, R(up));                // üst kol
-    const elbow = blk ? -0.6 : 0.25;
-    box(P(fx - 0.02, fy - 0.40 + (blk ? 0.10 : 0), fz + (blk ? 0.22 : 0.06)),
-        [0.21, 0.44, 0.22], COL.skin2, R(up + elbow));                 // ön kol
+    const p = ph + Math.PI;
+    const up = blk ? -1.25 : -Math.sin(p) * mv * 0.70;
+    const elbow = blk ? 1.15 : 0.22;
+    const upper = limb(root, -0.50, 0.62, 0, up, -0.10, 0.24, 0.46, 0.25, col);
+    const fore = limb(upper, 0, -0.46, 0, elbow, 0, 0.21, 0.44, 0.22, COL.skin2);
     if (blk) {
-      box(P(-0.30, 1.44, 0.66), [1.00, 1.12, 0.13], COL.steel, R(0.08));
-      box(P(-0.30, 1.44, 0.74), [0.72, 0.84, 0.05], COL.steel2, R(0.08));
-      box(P(-0.30, 1.44, 0.79), [0.30, 0.30, 0.05], COL.gold, R(0.08));
+      const hand = M4.mul(M4.trans(0, -0.44, 0), fore);
+      at(hand, 0, -0.02, 0.16, 1.00, 1.12, 0.13, COL.steel, -0.35);
+      at(hand, 0, -0.02, 0.23, 0.72, 0.84, 0.05, COL.steel2, -0.35);
+      at(hand, 0, -0.02, 0.27, 0.30, 0.30, 0.05, COL.gold, -0.35);
     }
   }
 
-  // SAĞ kol + silah: hazırlık -> savurma -> toparlanma
+  // --- SAĞ KOL + SİLAH: hazırlık -> savurma -> toparlanma ---
   {
-    const sw = Math.sin(ph) * mv;
-    let arm, wristLift = 0, reach = 0;
+    const p = ph;
+    let up, elbow;
     if (atk > 0) {
-      if (atk < 0.34) {                        // hazırlık: silahı arkaya kaldır
+      if (atk < 0.34) {                       // silahı arkaya kaldır
         const k = atk / 0.34;
-        arm = 0.6 + k * 1.5; wristLift = k * 0.55; reach = -k * 0.12;
-      } else if (atk < 0.58) {                 // savurma: hızlı öne
+        up = -0.2 - k * 2.2; elbow = 0.3 + k * 1.1;
+      } else if (atk < 0.58) {                // hızlı savur
         const k = (atk - 0.34) / 0.24;
-        arm = 2.1 - k * 3.3; wristLift = 0.55 - k * 0.85; reach = -0.12 + k * 0.62;
-      } else {                                 // toparlanma
+        up = -2.4 + k * 3.5; elbow = 1.4 - k * 1.2;
+      } else {                                // toparlan
         const k = (atk - 0.58) / 0.42;
-        arm = -1.2 + k * 1.2; wristLift = -0.30 + k * 0.30; reach = 0.50 - k * 0.50;
+        up = 1.1 - k * 1.3; elbow = 0.2 + k * 0.1;
       }
     } else {
-      arm = -sw * 0.75;
+      up = -Math.sin(p) * mv * 0.70; elbow = 0.22;
     }
-    const ux = 0.52, uy = 1.44 + wristLift * 0.30, uz = -sw * 0.22 + reach * 0.45;
-    box(P(ux, uy, uz), [0.24, 0.46, 0.25], col, R(arm));
-    const fyy = uy - 0.38 + wristLift * 0.18, fzz = uz + 0.10 + reach * 0.35;
-    box(P(ux + 0.02, fyy, fzz), [0.21, 0.44, 0.22], COL.skin2, R(arm * 0.85));
+    const upper = limb(root, 0.50, 0.62, 0, up, 0.10, 0.24, 0.46, 0.25, col);
+    const fore = limb(upper, 0, -0.46, 0, elbow, 0, 0.21, 0.44, 0.22, COL.skin2);
+    const hand = M4.mul(M4.trans(0, -0.44, 0), fore);
 
     const wp = WEAPONS[anim.weapon] || WEAPONS._def;
-    const tilt = arm * 0.9 - 0.55;
-    const gx = ux + 0.04, gy = fyy - 0.22, gz = fzz + 0.16;
-    box(P(gx, gy, gz), [wp.w + 0.03, 0.18, wp.w + 0.03], COL.leather, R(tilt));  // kabza
-    box(P(gx, gy + Math.cos(tilt) * wp.len * 0.42, gz + Math.sin(tilt) * wp.len * 0.42),
-        [wp.w, wp.len, wp.w], wp.col, R(tilt));
+    at(hand, 0, 0, 0.02, wp.w + 0.05, 0.20, wp.w + 0.05, COL.leather);        // kabza
+    at(hand, 0, 0, 0.16 + wp.len * 0.5, wp.w, wp.w, wp.len, wp.col);          // sap ileri
     if (wp.blade) {
       const h = wp.head || [0.15, 0.7, 0.05];
-      box(P(gx, gy + Math.cos(tilt) * wp.len * 0.92, gz + Math.sin(tilt) * wp.len * 0.92),
-          h, COL.steel, R(tilt));
+      at(hand, 0, 0, 0.16 + wp.len * 0.95, h[0], h[2] * 3.0, h[1], COL.steel);
     }
-    // savurma izi
-    if (atk > 0.30 && atk < 0.72) {
+    if (atk > 0.30 && atk < 0.70) {                                          // savurma izi
       setMode(3);
       for (let k = 1; k <= 4; k++) {
-        const back = atk - k * 0.055;
+        const back = atk - k * 0.05;
         if (back < 0.30) break;
-        const a2 = back < 0.58 ? 2.1 - ((back - 0.34) / 0.24) * 3.3 : -1.2;
-        const t2 = a2 * 0.9 - 0.55;
-        const fade = 1 - k * 0.22;
-        box(P(gx, gy + Math.cos(t2) * wp.len * 0.80, gz + Math.sin(t2) * wp.len * 0.80),
-            [0.09, 0.44 * fade, 0.09], [0.85 * fade, 0.92 * fade, 1.0], R(t2));
+        const kk = (back - 0.34) / 0.24;
+        const u2 = back < 0.58 ? -2.4 + kk * 3.5 : 1.1;
+        const e2 = back < 0.58 ? 1.4 - kk * 1.2 : 0.2;
+        const up2 = limbGhost(root, 0.50, 0.62, 0, u2, 0.10);
+        const fo2 = limbGhost(up2, 0, -0.46, 0, e2, 0);
+        const h2 = M4.mul(M4.trans(0, -0.44, 0), fo2);
+        const fade = 1 - k * 0.21;
+        at(h2, 0, 0, 0.16 + wp.len * 0.7, 0.10, 0.10, wp.len * 0.55,
+           [0.80 * fade, 0.90 * fade, 1.0]);
       }
       setMode(0);
     }
   }
+}
+
+/** Çizmeden sadece eklem matrisi üretir (silah izi için). */
+function limbGhost(parent, jx, jy, jz, rx, rz) {
+  let j = M4.ident();
+  if (rz) j = M4.mul(j, M4.rotZ(rz));
+  if (rx) j = M4.mul(j, M4.rotX(rx));
+  j = M4.mul(j, M4.trans(jx, jy, jz));
+  return M4.mul(j, parent);
 }
 
 
@@ -715,15 +738,18 @@ function frame(now) {
     const d = Math.hypot(fo.x - me.x, fo.z - me.z);
     const want = CQ.camAngle(me.x, me.z, fo.x, fo.z);    // rakipten bana doğru
     S.camYaw = angLerp(S.camYaw, want, 1 - Math.pow(0.0015, dt));
-    const dist = 7.2 + d * 0.42;
-    const h = 6.6 + d * 0.30;                            // yüksek açı: duvar kapatmaz
-    const ax = me.x + (fo.x - me.x) * 0.42;
-    const az = me.z + (fo.z - me.z) * 0.42;
+    // Bakış noktası: ikisinin ortası, ama bana biraz yakın.
+    const ax = me.x + (fo.x - me.x) * 0.40;
+    const az = me.z + (fo.z - me.z) * 0.40;
+    // Uzaklık ve yükseklik: iki dövüşçü de hep kadrajda kalsın diye
+    // aralarındaki mesafeye göre büyür. Yükseklik uzaklıkla orantılı
+    // tutuluyor -> bakış açısı hep ~45 derece, duvar önü kapatmıyor.
+    const dist = clamp(8.5 + d * 0.34, 8.5, 15.0);
+    const h = clamp(8.0 + d * 0.26, 8.0, 13.5);
     const cp = CQ.camPos(ax, az, S.camYaw, dist);
-    const ex = cp[0], ez = cp[1];
-    const sm = 1 - Math.pow(0.002, dt);
-    camEye = [lerp(camEye[0], ex, sm), lerp(camEye[1], h, 0.09), lerp(camEye[2], ez, sm)];
-    camAt = [lerp(camAt[0], ax, 0.18), 1.35, lerp(camAt[2], az, 0.18)];
+    const sm = 1 - Math.pow(0.0025, dt);
+    camEye = [lerp(camEye[0], cp[0], sm), lerp(camEye[1], h, 0.10), lerp(camEye[2], cp[1], sm)];
+    camAt = [lerp(camAt[0], ax, 0.20), 1.25, lerp(camAt[2], az, 0.20)];
   }
   let eye = camEye;
   if (S.shake > 0) {
