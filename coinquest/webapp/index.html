@@ -66,6 +66,9 @@
     pointer-events:none;transition:transform .7s linear,opacity .7s linear}
   #msg{position:absolute;top:38%;left:50%;transform:translate(-50%,-50%);font-size:30px;
     font-weight:900;text-shadow:0 3px 14px #000;text-align:center;opacity:0;transition:opacity .25s}
+  #btnSound{position:absolute;top:calc(8px + env(safe-area-inset-top));right:12px;
+    width:40px;height:40px;border-radius:50%;display:grid;place-items:center;font-size:19px;
+    background:rgba(20,30,58,.6);border:1px solid #33456f;pointer-events:auto}
   .hint{color:#8fa0c8;font-size:12px;margin-top:10px;text-align:center;line-height:1.6}
   .spin{width:34px;height:34px;border:3px solid #2b3a63;border-top-color:#ffd66b;
     border-radius:50%;margin:14px auto;animation:sp 1s linear infinite}
@@ -143,6 +146,7 @@
       <div class="hpbar"><div class="hpfill" id="h2" style="width:100%"></div></div></div>
   </div>
   <div class="clock" id="clock">90</div>
+  <div id="btnSound">🔊</div>
   <div id="dmgflash"></div>
   <div id="msg"></div>
   <div id="stick"><div id="knob"></div></div>
@@ -155,6 +159,7 @@
   </div>
 </div>
 
+<script src="/static/sfx.js"></script>
 <script src="/static/controls.js"></script>
 <script src="/static/game.js"></script>
 </body>

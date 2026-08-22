@@ -80,10 +80,13 @@ void main(){
     gl_FragColor = vec4(uColor, 1.0);
     return;
   }
-  if (uMode > 0.5 && uMode < 1.5) {        // gökyüzü: yukarıdan aşağı geçiş
+  if (uMode > 0.5 && uMode < 1.5) {        // gökyüzü: geçiş + yıldızlar
     float h = clamp(vL.y + 0.5, 0.0, 1.0);
-    col = mix(vec3(0.05,0.07,0.16), vec3(0.012,0.015,0.035), h);
-    col += vec3(0.30,0.20,0.10) * pow(1.0 - h, 6.0) * 0.75;   // ufuktaki sıcak parıltı
+    col = mix(vec3(0.09,0.11,0.22), vec3(0.015,0.02,0.05), h);
+    col += vec3(0.55,0.30,0.12) * pow(1.0 - h, 5.0) * 0.85;   // ufuktaki meşale parıltısı
+    vec2 sp = floor(vec2(atan(vW.z, vW.x) * 46.0, vW.y * 1.7));
+    float st = fract(sin(dot(sp, vec2(12.9898, 78.233))) * 43758.5453);
+    col += vec3(0.9, 0.93, 1.0) * step(0.9955, st) * h * 1.4;  // yıldızlar
     gl_FragColor = vec4(col, 1.0);
     return;
   }
@@ -101,12 +104,15 @@ void main(){
     base += vec3(0.16,0.10,0.03) * glow;   // ortadaki amblem parıltısı
   }
   float rim = pow(1.0 - max(dot(n, normalize(vec3(0.0,0.30,1.0))), 0.0), 3.0);
-  col = base * (0.32 + 0.68*d) + vec3(0.38,0.52,0.95)*rim*0.30;
+  // iki ışık: üstten ay ışığı + kenardaki meşalelerden sıcak dolgu
+  float warm = max(dot(n, normalize(vec3(-0.5, 0.35, -0.6))), 0.0);
+  col = base * (0.42 + 0.62*d) + base * vec3(1.0,0.55,0.22) * warm * 0.30
+      + vec3(0.40,0.55,1.0)*rim*0.26;
   float spec = pow(max(dot(reflect(-L, n), normalize(vec3(0.0,0.4,1.0))), 0.0), 24.0);
   col += vec3(1.0,0.94,0.80) * spec * 0.22;
   col += uColor * uEmit;
-  float fog = clamp((length(vW.xz) - 12.0) / 22.0, 0.0, 0.80);
-  col = mix(col, vec3(0.030,0.040,0.085), fog);
+  float fog = clamp((length(vW.xz) - 13.0) / 26.0, 0.0, 0.72);
+  col = mix(col, vec3(0.045,0.055,0.105), fog);
   gl_FragColor = vec4(col, 1.0);
 }`;
 
@@ -213,13 +219,15 @@ function box(pos, size, color, rot, emit) {
 // 3) SAHNE
 // ===========================================================================
 const COL = {
-  sand:  [0.42,0.33,0.21], sand2: [0.35,0.27,0.17],
-  ring:  [0.30,0.22,0.13], wall:  [0.17,0.15,0.21], cap: [0.24,0.21,0.28],
-  torch: [1.00,0.66,0.24], flame2:[1.00,0.86,0.42],
-  skin:  [0.86,0.68,0.50], skin2: [0.76,0.58,0.42],
-  p1:    [0.90,0.28,0.32], p2:    [0.26,0.55,0.95],
-  steel: [0.76,0.78,0.84], wood:  [0.40,0.26,0.15], gold: [0.96,0.79,0.30],
-  dark:  [0.13,0.14,0.19], crowd: [0.10,0.11,0.17],
+  sand:  [0.62,0.49,0.31], sand2: [0.52,0.40,0.25],
+  ring:  [0.40,0.30,0.18], wall:  [0.30,0.27,0.31], cap: [0.40,0.36,0.40],
+  torch: [1.00,0.62,0.18], flame2:[1.00,0.90,0.50],
+  skin:  [0.90,0.72,0.54], skin2: [0.80,0.62,0.45],
+  p1:    [0.92,0.26,0.30], p1d:   [0.62,0.16,0.20],
+  p2:    [0.24,0.52,0.96], p2d:   [0.14,0.32,0.66],
+  steel: [0.78,0.81,0.88], steel2:[0.55,0.58,0.66],
+  wood:  [0.42,0.27,0.15], gold:  [0.98,0.80,0.28],
+  dark:  [0.16,0.16,0.20], leather:[0.35,0.24,0.16],
 };
 
 let R = 12;
@@ -301,70 +309,144 @@ const WEAPONS = {
   _def:     {len:1.25,w:0.12, col:COL.steel, blade:true, head:[0.15,0.75,0.05]},
 };
 
-function drawFighter(f, col, anim) {
+/* Şövalye. Kutu yığını değil: konik uzuvlar, dirsek/diz bükümü, pelerin,
+ * miğfer + sorguç. Duruşlar tamamen animasyon durumundan hesaplanıyor. */
+function drawFighter(f, col, colDark, anim) {
   const {x, z, yaw} = f;
-  const sw = Math.sin(anim.walk) * anim.moving;
-  const dead = anim.dead;
-  const lean = dead ? Math.PI/2 * anim.deadT : (anim.attack > 0 ? 0.16 : 0);
-  const yBase = dead ? 0.4 * (1 - anim.deadT) : 0;
-
-  const P = (lx, ly, lz) => {
-    const c = Math.cos(yaw), s = Math.sin(yaw);
-    return [x + lx*c + lz*s, ly + yBase, z - lx*s + lz*c];
-  };
-  const rot = (ex, ez) => [ (ex||0) + lean, yaw, ez||0 ];
-
-  // gölge
-  setMode(0);
-  draw(MESH.disc, M4.mul(M4.scale(1.45, 0.02, 1.45), M4.trans(x, 0.03, z)), [0.05,0.05,0.10]);
-
-  box(P(-0.22, 0.42 - Math.abs(sw)*0.05, sw*0.30), [0.26, 0.85, 0.26], COL.dark, rot(sw*0.75));
-  box(P( 0.22, 0.42 - Math.abs(sw)*0.05, -sw*0.30), [0.26, 0.85, 0.26], COL.dark, rot(-sw*0.75));
-  box(P(0, 1.28, 0), [0.74, 0.94, 0.46], col, rot());
-  box(P(0, 1.02, 0.24), [0.50, 0.34, 0.06], [col[0]*0.7, col[1]*0.7, col[2]*0.7], rot());
-  box(P(-0.47, 1.62, 0), [0.30, 0.30, 0.48], col, rot());
-  box(P( 0.47, 1.62, 0), [0.30, 0.30, 0.48], col, rot());
-  box(P(0, 1.95, 0), [0.44, 0.44, 0.44], COL.skin, rot());
-  box(P(0, 2.13, 0), [0.50, 0.22, 0.50], col, rot());
-  box(P(0, 2.30, 0), [0.14, 0.30, 0.14], COL.gold, rot());     // tepelik
-
-  const atkA = anim.attack;
-  const swing = atkA > 0 ? Math.sin(atkA * Math.PI) : 0;
+  const mv = anim.move;                 // 0..1 yumuşatılmış hareket miktarı
+  const ph = anim.walk;
+  const dead = anim.dead, dT = anim.deadT;
+  const atk = anim.attack;              // 0..1 vuruş ilerlemesi
   const blk = anim.block;
+  const flinch = anim.hitT;
 
-  box(P(blk ? -0.30 : -0.49, blk ? 1.42 : 1.25, (blk ? 0.34 : 0) + sw*0.20),
-      [0.22, 0.7, 0.22], COL.skin2, rot(blk ? -1.1 : -sw*0.65));
-  if (blk) {
-    box(P(-0.26, 1.42, 0.64), [0.94, 1.04, 0.12], COL.steel, rot(0.1));
-    box(P(-0.26, 1.42, 0.72), [0.34, 0.34, 0.06], COL.gold, rot(0.1));
+  // --- gövde duruşu ---
+  const breathe = Math.sin(anim.t * 1.9) * 0.022 * (1 - mv);
+  const bob = Math.abs(Math.sin(ph)) * 0.085 * mv;          // koşarken zıplama
+  let lean = mv * 0.20 + (atk > 0 ? Math.sin(atk * Math.PI) * 0.30 : 0)
+             - flinch * 0.35 + (blk ? 0.12 : 0);
+  let crouch = blk ? 0.13 : 0;
+  let baseY = bob + breathe - crouch;
+  let roll = 0;
+  if (dead) { lean = 0; baseY = -0.55 * dT; roll = -Math.PI * 0.46 * dT; }
+
+  const c = Math.cos(yaw), sn = Math.sin(yaw);
+  const P = (lx, ly, lz) => [x + lx*c + lz*sn, ly + baseY, z - lx*sn + lz*c];
+  const R = (px, pz) => [ (px||0) + lean, yaw, (pz||0) + roll ];
+
+  // --- gölge (hareketle hafif oynar) ---
+  setMode(0);
+  const sh = 1.5 - bob * 1.2;
+  draw(MESH.disc, M4.mul(M4.scale(sh, 0.02, sh), M4.trans(x, 0.03, z)), [0.05,0.05,0.11]);
+
+  // --- bacaklar: kalça -> diz -> ayak ---
+  for (const side of [-1, 1]) {
+    const sw = Math.sin(ph + (side > 0 ? Math.PI : 0)) * mv;
+    const knee = Math.max(0, -Math.cos(ph + (side > 0 ? Math.PI : 0))) * mv * 0.7;
+    const hipZ = sw * 0.34, hipRot = sw * 0.85;
+    // uyluk
+    box(P(side * 0.20, 0.72, hipZ * 0.5), [0.27, 0.55, 0.28], colDark, R(hipRot));
+    // baldır (dizden bükülü)
+    box(P(side * 0.20, 0.32 - knee * 0.05, hipZ * 0.95 - knee * 0.18),
+        [0.23, 0.52, 0.24], COL.leather, R(hipRot - knee));
+    // çizme
+    box(P(side * 0.20, 0.09, hipZ * 1.15 + 0.06), [0.28, 0.18, 0.42], COL.dark, R(hipRot * 0.3));
   }
 
-  const rSwing = swing * 1.9 - (atkA > 0 ? 0.5 : 0);
-  box(P(0.49, 1.28 + swing*0.26, sw*-0.20 + swing*0.44), [0.22, 0.7, 0.22], COL.skin2,
-      rot(-rSwing + sw*0.65));
+  // --- gövde: bel + göğüs (omuzlara doğru genişler) ---
+  box(P(0, 1.06, 0), [0.56, 0.34, 0.38], COL.leather, R());     // bel
+  box(P(0, 1.20, 0), [0.66, 0.14, 0.44], COL.gold, R());        // kemer
+  box(P(0, 1.50, 0), [0.80, 0.60, 0.46], col, R());             // göğüs zırhı
+  box(P(0, 1.52, 0.25), [0.34, 0.40, 0.06], COL.gold, R());     // göğüs arması
 
-  const wp = WEAPONS[anim.weapon] || WEAPONS._def;
-  const wx = 0.53, wy = 1.15 + swing*0.52, wz = 0.30 + swing*0.88;
-  const tilt = -0.9 - rSwing;
-  box(P(wx, wy, wz), [wp.w, wp.len, wp.w], wp.col, rot(tilt));
-  if (wp.blade) {
-    const h = wp.head || [0.15,0.7,0.05];
-    const hx = wx, hy = wy + Math.cos(tilt)*wp.len*0.52, hz = wz + Math.sin(tilt)*wp.len*0.52;
-    box(P(hx, hy, hz), h, COL.steel, rot(tilt));
-    // vuruş izi
-    if (swing > 0.25) {
+  // --- pelerin (koşarken savrulur) ---
+  const capeSwing = -0.35 - mv * 0.55 - Math.sin(anim.t * 4 + ph) * 0.06 * mv;
+  box(P(0, 1.30, -0.30), [0.74, 0.92, 0.07], colDark, R(capeSwing));
+  box(P(0, 0.80, -0.30 + Math.sin(-capeSwing) * 0.55),
+      [0.66, 0.70, 0.06], colDark, R(capeSwing * 1.25));
+
+  // --- omuzluklar ---
+  for (const side of [-1, 1]) {
+    box(P(side * 0.50, 1.72, 0), [0.34, 0.28, 0.50], col, R(0, side * 0.30));
+    box(P(side * 0.52, 1.84, 0), [0.30, 0.10, 0.44], COL.gold, R(0, side * 0.30));
+  }
+
+  // --- kafa + miğfer ---
+  const headY = 2.02;
+  box(P(0, headY, 0), [0.40, 0.42, 0.40], COL.skin, R());
+  box(P(0, headY + 0.10, 0), [0.46, 0.30, 0.46], COL.steel, R());      // miğfer
+  box(P(0, headY + 0.02, 0.21), [0.30, 0.07, 0.06], COL.dark, R());    // vizör yarığı
+  box(P(0, headY + 0.32, -0.05), [0.09, 0.26, 0.30], col, R(0.25));    // sorguç
+  box(P(0, headY + 0.44, -0.16), [0.08, 0.18, 0.34], col, R(0.6));
+
+  // --- kollar ---
+  // SOL kol: blokta kalkanı kaldırır, koşarken karşı salınır
+  {
+    const sw = Math.sin(ph + Math.PI) * mv;
+    const up = blk ? -1.15 : (-sw * 0.75);
+    const fx = blk ? -0.28 : -0.52, fy = blk ? 1.56 : 1.44, fz = blk ? 0.30 : sw * 0.22;
+    box(P(fx, fy, fz), [0.24, 0.46, 0.25], col, R(up));                // üst kol
+    const elbow = blk ? -0.6 : 0.25;
+    box(P(fx - 0.02, fy - 0.40 + (blk ? 0.10 : 0), fz + (blk ? 0.22 : 0.06)),
+        [0.21, 0.44, 0.22], COL.skin2, R(up + elbow));                 // ön kol
+    if (blk) {
+      box(P(-0.30, 1.44, 0.66), [1.00, 1.12, 0.13], COL.steel, R(0.08));
+      box(P(-0.30, 1.44, 0.74), [0.72, 0.84, 0.05], COL.steel2, R(0.08));
+      box(P(-0.30, 1.44, 0.79), [0.30, 0.30, 0.05], COL.gold, R(0.08));
+    }
+  }
+
+  // SAĞ kol + silah: hazırlık -> savurma -> toparlanma
+  {
+    const sw = Math.sin(ph) * mv;
+    let arm, wristLift = 0, reach = 0;
+    if (atk > 0) {
+      if (atk < 0.34) {                        // hazırlık: silahı arkaya kaldır
+        const k = atk / 0.34;
+        arm = 0.6 + k * 1.5; wristLift = k * 0.55; reach = -k * 0.12;
+      } else if (atk < 0.58) {                 // savurma: hızlı öne
+        const k = (atk - 0.34) / 0.24;
+        arm = 2.1 - k * 3.3; wristLift = 0.55 - k * 0.85; reach = -0.12 + k * 0.62;
+      } else {                                 // toparlanma
+        const k = (atk - 0.58) / 0.42;
+        arm = -1.2 + k * 1.2; wristLift = -0.30 + k * 0.30; reach = 0.50 - k * 0.50;
+      }
+    } else {
+      arm = -sw * 0.75;
+    }
+    const ux = 0.52, uy = 1.44 + wristLift * 0.30, uz = -sw * 0.22 + reach * 0.45;
+    box(P(ux, uy, uz), [0.24, 0.46, 0.25], col, R(arm));
+    const fyy = uy - 0.38 + wristLift * 0.18, fzz = uz + 0.10 + reach * 0.35;
+    box(P(ux + 0.02, fyy, fzz), [0.21, 0.44, 0.22], COL.skin2, R(arm * 0.85));
+
+    const wp = WEAPONS[anim.weapon] || WEAPONS._def;
+    const tilt = arm * 0.9 - 0.55;
+    const gx = ux + 0.04, gy = fyy - 0.22, gz = fzz + 0.16;
+    box(P(gx, gy, gz), [wp.w + 0.03, 0.18, wp.w + 0.03], COL.leather, R(tilt));  // kabza
+    box(P(gx, gy + Math.cos(tilt) * wp.len * 0.42, gz + Math.sin(tilt) * wp.len * 0.42),
+        [wp.w, wp.len, wp.w], wp.col, R(tilt));
+    if (wp.blade) {
+      const h = wp.head || [0.15, 0.7, 0.05];
+      box(P(gx, gy + Math.cos(tilt) * wp.len * 0.92, gz + Math.sin(tilt) * wp.len * 0.92),
+          h, COL.steel, R(tilt));
+    }
+    // savurma izi
+    if (atk > 0.30 && atk < 0.72) {
       setMode(3);
-      for (let k = 1; k <= 3; k++) {
-        const s2 = swing - k * 0.16;
-        if (s2 <= 0) continue;
-        const t2 = -0.9 - (s2 * 1.9 - 0.5);
-        box(P(wx, 1.15 + s2*0.52 + Math.cos(t2)*wp.len*0.45, 0.30 + s2*0.88 + Math.sin(t2)*wp.len*0.45),
-            [0.10, 0.36, 0.10], [0.85 - k*0.2, 0.90 - k*0.2, 1.0], rot(t2));
+      for (let k = 1; k <= 4; k++) {
+        const back = atk - k * 0.055;
+        if (back < 0.30) break;
+        const a2 = back < 0.58 ? 2.1 - ((back - 0.34) / 0.24) * 3.3 : -1.2;
+        const t2 = a2 * 0.9 - 0.55;
+        const fade = 1 - k * 0.22;
+        box(P(gx, gy + Math.cos(t2) * wp.len * 0.80, gz + Math.sin(t2) * wp.len * 0.80),
+            [0.09, 0.44 * fade, 0.09], [0.85 * fade, 0.92 * fade, 1.0], R(t2));
       }
       setMode(0);
     }
   }
 }
+
 
 // ===========================================================================
 // 4) PARÇACIKLAR (kıvılcım, toz)
@@ -503,6 +585,7 @@ function startMatch(m) {
   S.running = true;
   show('game');
   flash(S.training ? 'ANTRENMAN!' : 'DÖVÜŞ!', '#ffd66b');
+  SFX.play('start');
 }
 
 function updateHud(m) {
@@ -515,9 +598,12 @@ function updateHud(m) {
 }
 
 function handleEvent(ev) {
+  if (ev.e === 'miss') { if (ev.id === S.me) SFX.play('swing'); return; }
   if (ev.e !== 'hit') return;
+  SFX.play(ev.blk ? 'block' : (ev.crit ? 'crit' : 'hit'));
   const a = S.anim[ev.to]; if (a) a.hitT = 1;
   cheer = 1;
+  SFX.cheer(1);
   const pos = S.cur ? S.cur.f.find(f => f.id === ev.to) : null;
   if (pos) {
     const c = ev.blk ? [0.75,0.85,1.0] : (ev.crit ? [1.0,0.85,0.35] : [1.0,0.32,0.28]);
@@ -559,6 +645,7 @@ function endMatch(m) {
   const win = m.win, draw2 = m.draw;
   el('resTitle').textContent = draw2 ? '🤝 BERABERE' : (win ? '🏆 KAZANDIN!' : '☠️ KAYBETTİN');
   el('resTitle').style.color = draw2 ? '#ffd66b' : (win ? '#8ef08e' : '#ff8a8a');
+  SFX.play(win ? 'win' : (draw2 ? 'start' : 'lose'));
   el('resBody').innerHTML =
     (m.training ? '<div class="sub">🥊 Antrenman maçı — coin ve istatistik yok.</div>' : '') +
     (m.prize ? `<div class="stat"><span>💰 Ödül</span><b>+${fmt(m.prize)} 🪙</b></div>` :
@@ -574,6 +661,7 @@ function endMatch(m) {
 // ===========================================================================
 // 6) KAMERA VE ÇİZİM DÖNGÜSÜ
 // ===========================================================================
+const INTERP = 60;          // ms — bir kare geriden oynatıp arayı doldururuz
 let camEye = [0, 11, 17], camAt = [0, 1.4, 0];
 
 function project(wx, wy, wz) {
@@ -595,6 +683,7 @@ function frame(now) {
   const t = now / 1000;
   if (S.hitStop > 0) { S.hitStop -= dt; dt *= 0.25; }   // vuruş anında zamanı yavaşlat
   cheer = Math.max(0, cheer - dt * 1.2);
+  SFX.cheer(cheer);
   S.flash = Math.max(0, S.flash - dt * 2.6);
   el('dmgflash').style.opacity = S.flash * 0.45;
 
@@ -602,16 +691,19 @@ function frame(now) {
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
   gl.uniform1f(U.time, t);
 
+  // Sunucu 20 Hz gönderiyor, biz 60 Hz çiziyoruz.
+  // Bir kare geriden (INTERP) oynatıp iki paket ARASINI dolduruyoruz —
+  // böylece hareket akıcı olur, zıplamaz.
   let fighters = [];
   if (S.cur) {
     const span = Math.max(1, S.curT - S.prevT);
-    const k = Math.min(1, (now - S.curT) / span + 1);
+    const k = clamp((now - INTERP - S.prevT) / span, 0, 1);
     fighters = S.cur.f.map(f => {
       const p = S.prev ? S.prev.f.find(q => q.id === f.id) : null;
-      if (!p) return {...f, yaw: f.y};
+      if (!p) return {id: f.id, hp: f.hp, s: f.s, x: f.x, z: f.z, yaw: f.y};
       return {id: f.id, hp: f.hp, s: f.s,
               x: lerp(p.x, f.x, k), z: lerp(p.z, f.z, k),
-              yaw: angLerp(p.y, f.y, Math.min(1, k * 1.6))};
+              yaw: angLerp(p.y, f.y, k)};
     });
   }
 
@@ -645,24 +737,50 @@ function frame(now) {
   drawScene(t, eye, camAt);
 
   fighters.forEach(f => {
-    const a = S.anim[f.id] || (S.anim[f.id] = {walk:0, attack:0, deadT:0, hitT:0, lastX:f.x, lastZ:f.z});
+    const a = S.anim[f.id] || (S.anim[f.id] =
+      {walk:0, move:0, attack:0, deadT:0, hitT:0, t:0, stepPh:0});
     const src = f.id === S.me ? S.my : S.foe;
-    const moved = Math.hypot(f.x - (a.lastX||f.x), f.z - (a.lastZ||f.z));
-    a.lastX = f.x; a.lastZ = f.z;
-    const moving = moved > 0.008 ? 1 : 0;
-    a.walk += dt * 10 * moving;
-    a.attack = f.s === 'attack' ? Math.min(1, a.attack + dt * 4.4) : 0;
-    a.deadT = f.s === 'dead' ? Math.min(1, a.deadT + dt * 3) : 0;
-    a.hitT = Math.max(0, a.hitT - dt * 3.5);
-    if (moving && Math.random() < (f.s === 'dash' ? 0.7 : 0.14)) {
-      spawn(f.x, 0.12, f.z, 1, [0.45,0.36,0.24], 1.2, 4);   // ayak tozu
+    a.t += dt;
+
+    // Gerçek hız: iki SUNUCU paketi arasındaki yol / geçen süre.
+    // (Ekran karesinden ölçersek duruyorken bile titreşim çıkıyordu.)
+    let hiz = 0;
+    if (S.prev && S.cur) {
+      const p = S.prev.f.find(q => q.id === f.id), c2 = S.cur.f.find(q => q.id === f.id);
+      if (p && c2) hiz = Math.hypot(c2.x - p.x, c2.z - p.z) / ((S.curT - S.prevT) / 1000 || 0.05);
     }
-    let col = f.id === S.me ? COL.p1.slice() : COL.p2.slice();
-    if (a.hitT > 0) col = col.map(c => Math.min(1, c + a.hitT * 0.95));
-    drawFighter(f, col, {
-      walk: a.walk, moving: moving * (f.s === 'dash' ? 1.8 : 1),
+    const hedef = f.s === 'dead' ? 0 : clamp(hiz / 4.2, 0, 1.35);
+    a.move = lerp(a.move, hedef, 1 - Math.pow(0.0008, dt));   // yumuşak geçiş
+    if (a.move < 0.02) a.move = 0;                            // DURUNCA TAM DUR
+    a.walk += dt * (7 + a.move * 5) * (a.move > 0 ? 1 : 0);
+    if (a.move === 0) a.walk = lerp(a.walk % (Math.PI*2), 0, 1 - Math.pow(0.02, dt));
+
+    a.attack = f.s === 'attack' ? Math.min(1, a.attack + dt * 3.2) : 0;
+    a.deadT = f.s === 'dead' ? Math.min(1, a.deadT + dt * 2.6) : 0;
+    a.hitT = Math.max(0, a.hitT - dt * 3.2);
+
+    // ayak sesi + toz: adım tam yere basınca
+    if (a.move > 0.15) {
+      const yeni = Math.floor(a.walk / Math.PI);
+      if (yeni !== a.stepPh) {
+        a.stepPh = yeni;
+        spawn(f.x, 0.10, f.z, 2, [0.55,0.44,0.30], 1.3, 5);
+        if (f.id === S.me) SFX.play('step');
+      }
+    }
+    if (f.s === 'dash' && Math.random() < 0.6) spawn(f.x, 0.14, f.z, 1, [0.6,0.5,0.35], 2.0, 4);
+
+    const mine = f.id === S.me;
+    let col = (mine ? COL.p1 : COL.p2).slice();
+    let colD = (mine ? COL.p1d : COL.p2d).slice();
+    if (a.hitT > 0) {
+      col = col.map(v => Math.min(1, v + a.hitT * 0.95));
+      colD = colD.map(v => Math.min(1, v + a.hitT * 0.8));
+    }
+    drawFighter(f, col, colD, {
+      walk: a.walk, move: a.move, t: a.t,
       attack: a.attack, block: f.s === 'block', dead: f.s === 'dead',
-      deadT: a.deadT, weapon: (src && src.weapon) || '',
+      deadT: a.deadT, hitT: a.hitT, weapon: (src && src.weapon) || '',
     });
   });
 
@@ -684,6 +802,8 @@ function pump() {
       lastSent = now;
       // Çubuğu kameraya göre dünyaya çevir (matematik controls.js'te, testi var)
       const w = CQ.moveToWorld(IN.mx, IN.mz, S.camYaw);
+      if (IN.atk) SFX.play('swing');
+      if (IN.dash) SFX.play('dash');
       send({t:'in', mx: w[0], mz: w[1], atk: IN.atk, blk: IN.blk, dash: IN.dash});
       IN.atk = false; IN.dash = false;
     }
@@ -773,6 +893,15 @@ el('btnHowBack').onclick = () => show('lobby');
 if (window.Telegram && window.Telegram.WebApp) {
   try { window.Telegram.WebApp.expand(); window.Telegram.WebApp.ready(); } catch (e) {}
 }
+
+// Tarayıcı sese ancak ilk dokunuştan sonra izin verir
+['touchstart', 'mousedown', 'keydown'].forEach(ev =>
+  addEventListener(ev, () => SFX.unlock(), {once: true, passive: true}));
+
+el('btnSound').onclick = () => {
+  SFX.unlock();
+  el('btnSound').textContent = SFX.toggle() ? '🔊' : '🔇';
+};
 
 loadMe();
 connect();
