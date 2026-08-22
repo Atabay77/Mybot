@@ -508,6 +508,14 @@ const S = {
   running: false, anim: {}, ws: null, pending: null, coins: 0,
   camYaw: 0, shake: 0, hitStop: 0, flash: 0,
 };
+/* Animasyon durumu TEK yerden kurulur.
+ * Daha önce iki ayrı yerde kuruluyordu; biri eksik alanlıydı ve
+ * "undefined + sayı = NaN" yüzünden tüm matris NaN olup karakter
+ * ekrandan tamamen kayboluyordu. Bir daha olmasın. */
+function yeniAnim() {
+  return {walk: 0, move: 0, attack: 0, deadT: 0, hitT: 0, t: 0, stepPh: 0};
+}
+
 const el = (id) => document.getElementById(id);
 const fmt = (n) => (n|0).toLocaleString('tr-TR');
 
@@ -601,7 +609,7 @@ function startMatch(m) {
   S.stake = m.stake;
   S.prev = S.cur = null;
   S.anim = {};
-  [S.my, S.foe].forEach(f => S.anim[f.id] = {walk:0, attack:0, deadT:0, hitT:0, lastX:0, lastZ:0});
+  [S.my, S.foe].forEach(f => S.anim[f.id] = yeniAnim());
   el('n1').textContent = S.my.name + ' (sen)';
   el('n2').textContent = S.foe.name;
   el('h1').style.width = '100%'; el('h2').style.width = '100%';
@@ -763,8 +771,7 @@ function frame(now) {
   drawScene(t, eye, camAt);
 
   fighters.forEach(f => {
-    const a = S.anim[f.id] || (S.anim[f.id] =
-      {walk:0, move:0, attack:0, deadT:0, hitT:0, t:0, stepPh:0});
+    const a = S.anim[f.id] || (S.anim[f.id] = yeniAnim());
     const src = f.id === S.me ? S.my : S.foe;
     a.t += dt;
 
@@ -776,6 +783,10 @@ function frame(now) {
       if (p && c2) hiz = Math.hypot(c2.x - p.x, c2.z - p.z) / ((S.curT - S.prevT) / 1000 || 0.05);
     }
     const hedef = f.s === 'dead' ? 0 : clamp(hiz / 4.2, 0, 1.35);
+    // Kalkan: herhangi bir alan bozulursa (NaN) karakter görünmez olurdu.
+    for (const k of ['walk','move','attack','deadT','hitT','t','stepPh']) {
+      if (!isFinite(a[k])) a[k] = 0;
+    }
     a.move = lerp(a.move, hedef, 1 - Math.pow(0.0008, dt));   // yumuşak geçiş
     if (a.move < 0.02) a.move = 0;                            // DURUNCA TAM DUR
     a.walk += dt * (7 + a.move * 5) * (a.move > 0 ? 1 : 0);
