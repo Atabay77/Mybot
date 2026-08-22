@@ -25,6 +25,11 @@ echo "==> Dosyalar $DIR dizinine kopyalanıyor..."
 mkdir -p "$DIR"
 cp "$SRC"/coinquest/*.py "$DIR"/
 cp "$SRC"/coinquest/requirements.txt "$DIR"/
+# 3D arena web dosyaları
+if [ -d "$SRC/coinquest/webapp" ]; then
+    mkdir -p "$DIR/webapp"
+    cp "$SRC"/coinquest/webapp/* "$DIR/webapp/"
+fi
 if [ -d "$SRC/coinquest/images" ]; then
     mkdir -p "$DIR/images"
     cp -n "$SRC"/coinquest/images/* "$DIR/images/" 2>/dev/null || true

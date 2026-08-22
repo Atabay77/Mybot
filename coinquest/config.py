@@ -102,6 +102,15 @@ NOTIFY_QUIET_END = 9
 NOTIFY_MAX_PER_PASS = 200   # bir taramada en fazla kaç mesaj (Telegram flood koruması)
 NOTIFY_PACE = 0.06          # mesajlar arası bekleme (~17 mesaj/sn, limit 30)
 
+# --- 3D ARENA (web oyunu) ---
+# ARENA_URL: oyuncuların tarayıcıdan gireceği DIŞ adres.
+#   Alan adın yoksa:  http://SUNUCU_IP:8080
+#   Alan adın varsa:  https://arena.siteadi.com   (Telegram içi açılış için şart)
+ARENA_ENABLED = os.environ.get("ARENA_ENABLED", "1") != "0"
+ARENA_PORT = int(os.environ.get("ARENA_PORT", "8080"))
+ARENA_URL = os.environ.get("ARENA_URL", "").strip()
+ARENA_TOKEN_TTL = 600          # giriş bağlantısı kaç saniye geçerli
+
 # Davet ödülü (elmas yok, sadece coin)
 REF_REWARD_COINS = 10_000
 REF_REWARD_NEW = 5_000          # davet edilene verilen

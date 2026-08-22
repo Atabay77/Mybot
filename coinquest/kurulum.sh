@@ -14,6 +14,11 @@ mkdir -p "$DIR"
 cp -r "$(dirname "$(readlink -f "$0")")"/*.py "$DIR"/
 cp -n "$(dirname "$(readlink -f "$0")")"/.env.example "$DIR"/.env.example 2>/dev/null || true
 cp "$(dirname "$(readlink -f "$0")")"/requirements.txt "$DIR"/
+SRCDIR="$(dirname "$(readlink -f "$0")")"
+if [ -d "$SRCDIR/webapp" ]; then
+    mkdir -p "$DIR/webapp"
+    cp "$SRCDIR"/webapp/* "$DIR/webapp/"
+fi
 cp "$(dirname "$(readlink -f "$0")")"/coinquest.service /etc/systemd/system/coinquest.service
 
 echo "==> Sanal ortam ve bağımlılıklar..."

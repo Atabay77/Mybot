@@ -12,6 +12,7 @@ from telegram.ext import (
 )
 
 import admin
+import arena
 import cash
 import config
 import db
@@ -31,6 +32,7 @@ import social
 import support
 import ui
 import war
+import webapp
 
 logging.basicConfig(
     format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
@@ -392,6 +394,7 @@ async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def post_init(app: Application) -> None:
+    await webapp.start(app)          # 3D arena sunucusu (botla aynı süreçte)
     # Kısa liste: normalde kimse komut yazmaz, her şey butonlarla yapılır.
     await app.bot.set_my_commands([
         BotCommand("start", "🏰 Başla / menü"),
@@ -441,6 +444,7 @@ def build_app() -> Application:
     app.add_handler(CommandHandler(["para", "cek", "cash"], cash.cmd_cash))
     app.add_handler(CommandHandler(["madenler", "miners", "magdan"], miners.cmd_miners))
     app.add_handler(CommandHandler(["destek", "support", "komek"], support.cmd_support))
+    app.add_handler(CommandHandler(["arena", "3d"], arena.cmd_arena))
     app.add_handler(CommandHandler(["savas", "war", "sezon"], war.cmd_war))
     app.add_handler(CommandHandler(["ustalik", "perk"], perks.cmd_perks))
     app.add_handler(CommandHandler(["bildirim", "habar"], notify.cmd_notify))
@@ -463,6 +467,7 @@ def build_app() -> Application:
     app.add_handler(CallbackQueryHandler(cb(war.on_callback), pattern=r"^w:"))
     app.add_handler(CallbackQueryHandler(cb(notify.on_callback), pattern=r"^nt:"))
     app.add_handler(CallbackQueryHandler(cb(perks.on_callback), pattern=r"^pk:"))
+    app.add_handler(CallbackQueryHandler(cb(arena.on_callback), pattern=r"^ar:"))
 
     # yazı + medya (destek ve reklam için)
     media_filter = (filters.TEXT | filters.PHOTO | filters.VIDEO | filters.ANIMATION

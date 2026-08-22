@@ -635,6 +635,62 @@ STR: dict[str, dict[str, str]] = {
     "pk_b_yes": {"tk": "✅ Hawa, satyn al", "ru": "✅ Да, купить", "tr": "✅ Evet, satın al"},
     "pk_b_no": {"tk": "❌ Goý", "ru": "❌ Отмена", "tr": "❌ Vazgeç"},
     "pk_b_back": {"tk": "⬅️ Ussatlyklar", "ru": "⬅️ Мастерство", "tr": "⬅️ Ustalıklar"},
+
+    # ---------- 3D ARENA ----------
+    "b_arena": {"tk": "🏟 3D Arena", "ru": "🏟 3D Арена", "tr": "🏟 3D Arena"},
+    "ar_toast": {"tk": "🏟 Arena", "ru": "🏟 Арена", "tr": "🏟 Arena"},
+    "ar_title": {"tk": "🏟 <b>3D ARENA</b>", "ru": "🏟 <b>3D АРЕНА</b>", "tr": "🏟 <b>3D ARENA</b>"},
+    "ar_intro": {"tk": "Brauzerde <b>hakyky wagtda</b> başga oýunçy bilen söweş.\n"
+                       "Ýaragyň, sowudyň we derejäň şu botdan gelýär.",
+                 "ru": "Сражайся с другим игроком <b>в реальном времени</b> в браузере.\n"
+                       "Оружие, броня и уровень берутся из этого бота.",
+                 "tr": "Tarayıcıda <b>gerçek zamanlı</b> başka oyuncuyla dövüş.\n"
+                       "Silahın, zırhın ve seviyen bu bottan geliyor."},
+    "ar_offline": {"tk": "⚙️ Arena entek açylmady. Eýesi ARENA_URL sazlamaly.",
+                   "ru": "⚙️ Арена ещё не включена. Владелец должен задать ARENA_URL.",
+                   "tr": "⚙️ Arena henüz açılmadı. Sahibinin ARENA_URL ayarlaması gerekiyor."},
+    "ar_atk": {"tk": "Hüjüm", "ru": "Атака", "tr": "Saldırı"},
+    "ar_dfn": {"tk": "Goranyş", "ru": "Защита", "tr": "Savunma"},
+    "ar_hp": {"tk": "Jan", "ru": "Здоровье", "tr": "Can"},
+    "ar_crit": {"tk": "Kritik", "ru": "Крит", "tr": "Kritik"},
+    "ar_speed": {"tk": "Tizlik", "ru": "Скорость", "tr": "Hız"},
+    "ar_record": {"tk": "Netije", "ru": "Счёт", "tr": "Karne"},
+    "ar_damage": {"tk": "zeper", "ru": "урона", "tr": "hasar"},
+    "ar_b_play": {"tk": "🎮 ARENA AÇ (3D)", "ru": "🎮 ОТКРЫТЬ АРЕНУ (3D)",
+                  "tr": "🎮 ARENAYI AÇ (3D)"},
+    "ar_b_how": {"tk": "❓ Nädip", "ru": "❓ Как играть", "tr": "❓ Nasıl oynanır"},
+    "ar_b_top": {"tk": "🏆 Öňdelik", "ru": "🏆 Рейтинг", "tr": "🏆 Sıralama"},
+    "ar_b_back": {"tk": "⬅️ Arena", "ru": "⬅️ Арена", "tr": "⬅️ Arena"},
+    "ar_how_title": {"tk": "🏟 <b>ARENA — NÄDIP OÝNAMALY</b>",
+                     "ru": "🏟 <b>АРЕНА — КАК ИГРАТЬ</b>",
+                     "tr": "🏟 <b>ARENA — NASIL OYNANIR</b>"},
+    "ar_how_body": {
+        "tk": "<blockquote>🕹 Çep aşakdaky taýak — ýöremek\n"
+              "⚔️ Gyzyl düwme — urmak\n🛡 Galkan — goranmak (zeperiň köpüsini kesýär)\n"
+              "💨 Okdurylmak — çalt gaçmak\n⚡ Ýaşyl zolak — kuwwat, gutarsa urup bilmersiň"
+              "</blockquote>\n"
+              "🗡 <b>Arkadan</b> urmak has köp zeper ýetirýär, galkan işlemeýär.\n"
+              "❤️ Duşmanyň jany gutarsa ýa-da {secs} sekunt dolanda jany az bolan ýeňilýär.\n\n"
+              "<i>Ähli hasap SERWERDE edilýär — hile mümkin däl.</i>",
+        "ru": "<blockquote>🕹 Джойстик слева — движение\n"
+              "⚔️ Красная кнопка — удар\n🛡 Щит — блок (срезает большую часть урона)\n"
+              "💨 Рывок — быстрый уход\n⚡ Зелёная полоса — выносливость, без неё не ударишь"
+              "</blockquote>\n"
+              "🗡 Удар <b>со спины</b> сильнее, и блок не спасает.\n"
+              "❤️ Побеждает тот, кто снял всё здоровье, или у кого больше HP через {secs} секунд.\n\n"
+              "<i>Все расчёты идут на СЕРВЕРЕ — читы невозможны.</i>",
+        "tr": "<blockquote>🕹 Sol alttaki çubuk — hareket\n"
+              "⚔️ Kırmızı düğme — saldır\n🛡 Kalkan — blokla (hasarın çoğunu keser)\n"
+              "💨 Atıl — hızlı kaçış\n⚡ Yeşil çubuk — dayanıklılık, bitince vuramazsın"
+              "</blockquote>\n"
+              "🗡 <b>Arkadan</b> vurmak daha çok hasar verir, blok işe yaramaz.\n"
+              "❤️ Rakibin canı biterse ya da {secs} saniye dolunca canı az olan kaybeder.\n\n"
+              "<i>Bütün hesap SUNUCUDA yapılır — hile mümkün değil.</i>"},
+    "ar_top_title": {"tk": "🏆 <b>ARENA ÖŇDELIGI</b>", "ru": "🏆 <b>РЕЙТИНГ АРЕНЫ</b>",
+                     "tr": "🏆 <b>ARENA SIRALAMASI</b>"},
+    "ar_top_empty": {"tk": "Entek hiç kim ýeňmedi. Ilkinji sen bol!",
+                     "ru": "Пока никто не побеждал. Стань первым!",
+                     "tr": "Henüz kimse kazanmadı. İlk sen ol!"},
 }
 
 
