@@ -41,17 +41,20 @@
   .side.r .hpfill{background:linear-gradient(90deg,#7aa2ff,#5cd6ff);float:right}
   .clock{position:absolute;top:calc(8px + env(safe-area-inset-top));left:50%;transform:translateX(-50%);
     font-size:20px;font-weight:800;text-shadow:0 2px 8px #000;font-variant-numeric:tabular-nums}
-  .stbar{position:absolute;bottom:calc(112px + env(safe-area-inset-bottom));left:50%;
-    transform:translateX(-50%);width:min(260px,62%);height:7px;background:#12203a;
-    border:1px solid #26365e;border-radius:5px;overflow:hidden}
-  .stfill{height:100%;background:linear-gradient(90deg,#6be36b,#d8f36b);width:100%}
+  .stbar{height:6px;background:#12203a;border:1px solid #26365e;border-radius:4px;
+    overflow:hidden;margin-top:4px}
+  .stfill{height:100%;background:linear-gradient(90deg,#6be36b,#d8f36b);width:100%;
+    transition:width .1s}
+  #dmgflash{position:absolute;inset:0;background:radial-gradient(circle at 50% 55%,
+    transparent 35%,rgba(255,40,50,.85) 100%);opacity:0;pointer-events:none;
+    transition:opacity .12s}
 
-  #stick{position:absolute;bottom:calc(24px + env(safe-area-inset-bottom));left:22px;
+  #stick{position:absolute;bottom:calc(30px + env(safe-area-inset-bottom));left:20px;
     width:132px;height:132px;border-radius:50%;background:rgba(20,30,58,.5);
     border:2px solid #33456f;pointer-events:auto;touch-action:none}
   #knob{position:absolute;left:50%;top:50%;width:56px;height:56px;margin:-28px 0 0 -28px;
     border-radius:50%;background:rgba(140,170,255,.75);box-shadow:0 3px 12px #0008}
-  .acts{position:absolute;right:20px;bottom:calc(24px + env(safe-area-inset-bottom));
+  .acts{position:absolute;right:18px;bottom:calc(30px + env(safe-area-inset-bottom));
     display:grid;gap:11px;pointer-events:auto}
   .act{width:74px;height:74px;border-radius:50%;border:2px solid #3a4d7d;display:grid;
     place-items:center;font-size:26px;background:rgba(24,34,64,.72);touch-action:none}
@@ -134,12 +137,13 @@
 <div id="hud">
   <div class="bars">
     <div class="side"><div class="nm" id="n1">—</div>
-      <div class="hpbar"><div class="hpfill" id="h1" style="width:100%"></div></div></div>
+      <div class="hpbar"><div class="hpfill" id="h1" style="width:100%"></div></div>
+      <div class="stbar"><div class="stfill" id="stam"></div></div></div>
     <div class="side r"><div class="nm" id="n2">—</div>
       <div class="hpbar"><div class="hpfill" id="h2" style="width:100%"></div></div></div>
   </div>
   <div class="clock" id="clock">90</div>
-  <div class="stbar"><div class="stfill" id="stam"></div></div>
+  <div id="dmgflash"></div>
   <div id="msg"></div>
   <div id="stick"><div id="knob"></div></div>
   <div class="acts">
@@ -151,6 +155,7 @@
   </div>
 </div>
 
+<script src="/static/controls.js"></script>
 <script src="/static/game.js"></script>
 </body>
 </html>
