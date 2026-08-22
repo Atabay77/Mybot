@@ -43,6 +43,11 @@ _queue: dict[int, list] = {}
 # canlı dövüşler: match_id -> Match
 _matches: dict[int, "Match"] = {}
 _next_match = [1]
+# hangi oyuncu hangi maçta: user_id -> Match  (yeniden bağlanma için)
+_in_match: dict[int, "Match"] = {}
+
+RECONNECT_GRACE = 20.0   # bağlantı koparsa kaç saniye beklenir (telefonda uygulama
+                         # değiştirince soket kapanıyor — hemen kaybetmesin)
 
 
 # ---------------------------------------------------------------------------
@@ -159,8 +164,11 @@ class Player:
         self.ws = ws
         self.match = None
         self.stake = 0
+        self.gone_at = 0.0          # bağlantı koptuysa ne zaman koptu
 
     async def send(self, obj) -> bool:
+        if self.ws is None:
+            return False
         try:
             await self.ws.send_json(obj)
             return True
@@ -168,14 +176,65 @@ class Player:
             return False
 
 
+class BotPlayer:
+    """Antrenman rakibi — soketi yoktur, mesajları yutar."""
+
+    def __init__(self):
+        self.id = arena.BOT_ID
+        self.ws = None
+        self.match = None
+        self.stake = 0
+        self.gone_at = 0.0
+
+    async def send(self, obj) -> bool:
+        return True
+
+
 class Match:
-    def __init__(self, p1: Player, p2: Player, stake: int):
+    def __init__(self, p1: Player, p2, stake: int, training: bool = False,
+                 difficulty: str = "orta"):
         self.id = _next_match[0]
         _next_match[0] += 1
         self.players = [p1, p2]
-        self.battle = arena.Battle(arena.loadout(p1.id), arena.loadout(p2.id), stake)
+        self.training = training
+        if training:
+            level = (db.get_user(p1.id) or {"level": 1})["level"]
+            foe = arena.bot_loadout(level, difficulty)
+            self.battle = arena.Battle(arena.loadout(p1.id), foe, 0, training=True)
+            self.brain = arena.BotBrain(self.battle, difficulty)
+        else:
+            self.battle = arena.Battle(arena.loadout(p1.id), arena.loadout(p2.id), stake)
+            self.brain = None
         self.task = None
         self.done = False
+        for p in self.players:
+            if p.id > 0:
+                _in_match[p.id] = self
+
+    def player_of(self, user_id: int):
+        return next((p for p in self.players if p.id == user_id), None)
+
+    def attach(self, player: Player) -> bool:
+        """Kopan oyuncu geri döndü: yeni soketi maça bağla."""
+        for i, p in enumerate(self.players):
+            if p.id == player.id:
+                self.players[i] = player
+                player.match = self
+                player.gone_at = 0.0
+                return True
+        return False
+
+    async def send_start(self, only=None) -> None:
+        b = self.battle
+        for p in self.players:
+            if only is not None and p is not only:
+                continue
+            await p.send({
+                "t": "start", "mid": self.id, "stake": b.stake, "you": p.id,
+                "training": self.training,
+                "arena": {"r": arena.RADIUS, "reach": arena.REACH},
+                "f": [b.a.d, b.b.d],
+            })
 
     async def broadcast(self, obj) -> None:
         for p in self.players:
@@ -183,16 +242,18 @@ class Match:
 
     async def run(self) -> None:
         b = self.battle
-        await self.broadcast({
-            "t": "start", "mid": self.id, "stake": b.stake,
-            "arena": {"r": arena.RADIUS, "reach": arena.REACH},
-            "f": [b.a.d, b.b.d],
-        })
+        await self.send_start()
         try:
             next_tick = time.monotonic()
             while not b.over:
+                if self.brain:
+                    self.brain.think(arena.TICK)
                 b.step(arena.TICK)
                 await self.broadcast(b.snapshot())
+                kacan = self._check_gone()
+                if kacan:
+                    await self.finish(forfeit=kacan)
+                    return
                 next_tick += arena.TICK
                 delay = next_tick - time.monotonic()
                 if delay > 0:
@@ -205,6 +266,14 @@ class Match:
             log.exception("arena dövüş hatası")
         await self.finish()
 
+    def _check_gone(self) -> int:
+        """Süresi içinde dönmeyen oyuncuyu bildirir (0 = herkes bağlı)."""
+        now = time.monotonic()
+        for p in self.players:
+            if p.gone_at and now - p.gone_at > RECONNECT_GRACE:
+                return p.id
+        return 0
+
     async def finish(self, forfeit: int = 0) -> None:
         if self.done:
             return
@@ -216,13 +285,18 @@ class Match:
         result = arena.settle(b)
         for p in self.players:
             p.match = None
+            _in_match.pop(p.id, None)
             me = b.a if b.a.id == p.id else b.b
             foe = b.b if b.a.id == p.id else b.a
+            if p.id <= 0:
+                continue
+            user = db.get_user(p.id)
             await p.send({
                 "t": "end", "win": (b.winner == p.id), "draw": b.winner == 0,
                 "prize": result.get("prize", 0), "stake": b.stake,
+                "training": self.training,
                 "dmg": int(me.damage_done), "taken": int(foe.damage_done),
-                "hits": me.hits, "coins": (db.get_user(p.id) or {"coins": 0})["coins"],
+                "hits": me.hits, "coins": user["coins"] if user else 0,
             })
         _matches.pop(self.id, None)
 
@@ -259,6 +333,13 @@ async def _try_match(player: Player, stake: int) -> None:
     match.task = asyncio.create_task(match.run())
 
 
+async def _start_training(player: Player, difficulty: str = "orta") -> None:
+    match = Match(player, BotPlayer(), 0, training=True, difficulty=difficulty)
+    _matches[match.id] = match
+    player.match = match
+    match.task = asyncio.create_task(match.run())
+
+
 async def h_ws(request):
     user_id = _session_user(request)
     ws = web.WebSocketResponse(heartbeat=25)
@@ -269,6 +350,12 @@ async def h_ws(request):
         return ws
     player = Player(user_id, ws)
     log.info("arena: %s bağlandı", user_id)
+    # Kopan bir maçı varsa geri bağla (telefonda uygulama değiştirince soket kapanıyor)
+    live = _in_match.get(user_id)
+    if live and not live.done:
+        live.attach(player)
+        await live.send_start(only=player)
+        log.info("arena: %s maça geri döndü (#%s)", user_id, live.id)
     try:
         async for msg in ws:
             if msg.type != WSMsgType.TEXT:
@@ -278,7 +365,15 @@ async def h_ws(request):
             except Exception:
                 continue
             kind = data.get("t")
-            if kind == "find":
+            if kind == "train":
+                if player.match:
+                    continue
+                _leave_queue(player)
+                zorluk = str(data.get("level", "orta"))
+                if zorluk not in ("kolay", "orta", "zor"):
+                    zorluk = "orta"
+                await _start_training(player, zorluk)
+            elif kind == "find":
                 stake = int(data.get("stake", 0) or 0)
                 if stake not in arena.STAKES:
                     stake = 0
@@ -302,8 +397,21 @@ async def h_ws(request):
         log.exception("arena websocket hatası")
     finally:
         _leave_queue(player)
-        if player.match and not player.match.done:
-            await player.match.finish(forfeit=user_id)   # kaçan kaybeder
+        match = player.match
+        if match and not match.done and match.player_of(user_id) is player:
+            if match.training:
+                # antrenman maçı: kimse beklemesin, sessizce kapat
+                match.done = True
+                for p in match.players:
+                    p.match = None
+                    _in_match.pop(p.id, None)
+                _matches.pop(match.id, None)
+                if match.task:
+                    match.task.cancel()
+            else:
+                # HEMEN kaybettirme: geri dönmesi için süre tanı
+                player.gone_at = time.monotonic()
+                log.info("arena: %s koptu, %ssn bekleniyor", user_id, int(RECONNECT_GRACE))
         log.info("arena: %s ayrıldı", user_id)
     return ws
 

@@ -331,14 +331,44 @@ async function loadMe() {
   el('hint').textContent = 'Gücün bottaki eşyalarından geliyor. Daha iyi silah al, daha güçlü ol.';
 }
 
-function connect() {
+let reconnectTimer = null;
+
+function setConn(txt) { const c = el('conn'); if (c) c.textContent = txt; }
+
+function connect(onOpen) {
+  // Zaten bağlıysa ya da bağlanıyorsa YENİ soket açma (iki soket = maç karışması)
+  if (S.ws && (S.ws.readyState === 0 || S.ws.readyState === 1)) {
+    if (S.ws.readyState === 1 && onOpen) onOpen();
+    else if (onOpen) S.pending = onOpen;
+    return;
+  }
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  setConn('Bağlanıyor…');
   S.ws = new WebSocket(`${proto}://${location.host}/ws`);
+  S.ws.onopen = () => {
+    setConn('');
+    const f = onOpen || S.pending; S.pending = null;
+    if (f) f();
+  };
   S.ws.onmessage = (e) => onMsg(JSON.parse(e.data));
-  S.ws.onclose = () => { if (S.running) { S.running = false; show('lobby');
-    el('hint').textContent = 'Bağlantı koptu. Tekrar dene.'; } };
+  S.ws.onerror = () => setConn('Bağlantı hatası');
+  S.ws.onclose = () => {
+    setConn('Bağlantı koptu — yeniden bağlanılıyor…');
+    if (S.running) {
+      flash('BAĞLANTI KOPTU\nyeniden bağlanılıyor…', '#ffd66b');
+    }
+    // Telefonda uygulama değiştirince soket kapanıyor; sunucu 20 saniye bekliyor.
+    // O yüzden hemen geri bağlanmayı deniyoruz — maç kaldığı yerden devam eder.
+    clearTimeout(reconnectTimer);
+    reconnectTimer = setTimeout(() => connect(), 1200);
+  };
 }
 const send = (o) => { if (S.ws && S.ws.readyState === 1) S.ws.send(JSON.stringify(o)); };
+
+// Sayfa geri gelince (uygulama değişimi) bağlantıyı tazele
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && (!S.ws || S.ws.readyState > 1)) connect();
+});
 
 function onMsg(m) {
   if (m.t === 'queued') {
@@ -363,8 +393,11 @@ function onMsg(m) {
 function startMatch(m) {
   R = m.arena.r;
   const [a, b] = m.f;
+  // Sunucu hangi dövüşçünün bize ait olduğunu söylüyor — /api/me gecikse bile şaşmaz
+  if (m.you) S.me = m.you;
   S.my = a.id === S.me ? a : b;
   S.foe = a.id === S.me ? b : a;
+  S.training = !!m.training;
   S.stake = m.stake;
   S.prev = S.cur = null;
   S.anim = {};
@@ -374,7 +407,7 @@ function startMatch(m) {
   el('h1').style.width = '100%'; el('h2').style.width = '100%';
   S.running = true;
   show('game');
-  flash('DÖVÜŞ!', '#ffd66b');
+  flash(S.training ? 'ANTRENMAN!' : 'DÖVÜŞ!', '#ffd66b');
 }
 
 function updateHud(m) {
@@ -424,6 +457,7 @@ function endMatch(m) {
   el('resTitle').textContent = draw ? '🤝 BERABERE' : (win ? '🏆 KAZANDIN!' : '☠️ KAYBETTİN');
   el('resTitle').style.color = draw ? '#ffd66b' : (win ? '#8ef08e' : '#ff8a8a');
   el('resBody').innerHTML =
+    (m.training ? '<div class="sub">🥊 Antrenman maçı — coin ve istatistik yok.</div>' : '') +
     (m.prize ? `<div class="stat"><span>💰 Ödül</span><b>+${fmt(m.prize)} 🪙</b></div>` :
      (m.stake && !draw && !win ? `<div class="stat"><span>💸 Kaybettiğin</span>` +
         `<b>${fmt(m.stake)} 🪙</b></div>` : '')) +
@@ -609,13 +643,12 @@ tapBtn('bBlock', () => { blockHeld = true; IN.blk = true; },
 // ===========================================================================
 // 7) MENÜ DÜĞMELERİ
 // ===========================================================================
-el('btnFind').onclick = () => {
-  if (!S.ws || S.ws.readyState !== 1) connect();
-  setTimeout(() => send({t:'find', stake: S.sel}), S.ws && S.ws.readyState === 1 ? 0 : 400);
-};
+el('btnFind').onclick = () => connect(() => send({t:'find', stake: S.sel}));
+[...document.querySelectorAll('#trainRow button')].forEach(b => {
+  b.onclick = () => connect(() => send({t:'train', level: b.dataset.lvl}));
+});
 el('btnCancel').onclick = () => { send({t:'cancel'}); show('lobby'); };
-el('btnAgain').onclick = () => { loadMe().then(() => { show('lobby');
-  el('btnFind').click(); }); };
+el('btnAgain').onclick = () => { loadMe().then(() => show('lobby')); };
 el('btnLobby').onclick = () => { loadMe().then(() => show('lobby')); };
 el('btnHow').onclick = () => show('how');
 el('btnHowBack').onclick = () => show('lobby');

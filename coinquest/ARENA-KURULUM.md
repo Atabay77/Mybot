@@ -135,8 +135,15 @@ Portu kontrol et: `ss -tlnp | grep 8080`. Bir şey görünmüyorsa
 Giriş bağlantısı 10 dakika geçerli. Bota dönüp düğmeye tekrar bas.
 
 **Rakip bulunmuyor.**
-Aynı bahiste bekleyen başka oyuncu gerekiyor. İki telefonda/iki hesapla
-"Bedava" bahsi seçip aynı anda "RAKİP BUL" deneyin.
+Ana ekranın altındaki **🥉 Kolay / 🥈 Orta / 🥇 Zor** düğmeleriyle bota karşı
+antrenman yapabilirsin — tek başına da oynanır. Antrenman maçında coin ve
+istatistik yoktur (yoksa botu yenerek çiftlik kurulurdu), sadece küçük bir
+tecrübe verilir.
+
+**Maç hemen bitiyordu, düzeldi mi?**
+Evet. Önceden bağlantı kopar kopmaz maç kaybediliyordu; telefonda uygulama
+değiştirince soket kapandığı için maç anında bitiyordu. Artık sunucu
+**20 saniye bekliyor** ve oyuncu geri dönerse maç kaldığı yerden devam ediyor.
 
 **Hile yapılabilir mi?**
 Hayır. Konum, hasar, canlar — hepsi sunucuda hesaplanıyor. Tarayıcı sadece

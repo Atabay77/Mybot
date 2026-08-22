@@ -152,8 +152,10 @@ class Fighter:
 class Battle:
     """Sunucu tarafı dövüş simülasyonu. Saf Python — testten çağrılabilir."""
 
-    def __init__(self, a: dict, b: dict, stake: int = 0, seed: int | None = None):
+    def __init__(self, a: dict, b: dict, stake: int = 0, seed: int | None = None,
+                 training: bool = False):
         self.rng = random.Random(seed)
+        self.training = training        # antrenman: ödül yok, kayıt yok
         self.a = Fighter(a, 0.0)
         self.b = Fighter(b, math.pi)
         self.stake = stake
@@ -348,6 +350,81 @@ class Battle:
 
 
 # ---------------------------------------------------------------------------
+# ANTRENMAN BOTU  (tek başına oynayabilmek için)
+# ---------------------------------------------------------------------------
+BOT_ID = -1                       # eksi numara = gerçek oyuncu değil
+
+BOT_LEVELS = [
+    ("kolay",  "🥉 Çaylak Kukla",  0.65, 0.55, 1.20),
+    ("orta",   "🥈 Arena Gladyatörü", 0.90, 0.85, 0.65),
+    ("zor",    "🥇 Arena Ustası", 1.15, 1.15, 0.35),
+]
+
+
+def bot_loadout(level: int, difficulty: str = "orta") -> dict:
+    """Oyuncunun seviyesine yakın bir antrenman rakibi üretir."""
+    spec = next((b for b in BOT_LEVELS if b[0] == difficulty), BOT_LEVELS[1])
+    _k, name, gucluluk, canlilik, _tepki = spec
+    atk = (12 + level * 3) * gucluluk
+    dfn = (6 + level * 2) * gucluluk
+    hp = (110 + level * 14) * canlilik
+    return {
+        "id": BOT_ID, "name": name, "level": level,
+        "hp": hp, "max_hp": hp, "atk": atk, "dfn": dfn, "crit": 0.10,
+        "speed": BASE_SPEED * 0.95, "weapon": "w_axe", "weapon_name": "🪓 Balta",
+        "armor": "", "armor_name": "", "pet": "", "pet_name": "",
+        "bot": True, "difficulty": difficulty,
+    }
+
+
+class BotBrain:
+    """Basit ama adil yapay zeka: yaklaş, menzile girince vur, bazen blokla."""
+
+    def __init__(self, battle: "Battle", difficulty: str = "orta"):
+        self.b = battle
+        spec = next((x for x in BOT_LEVELS if x[0] == difficulty), BOT_LEVELS[1])
+        self.reaction = spec[4]          # saniye — düşük = daha hızlı tepki
+        self.cool = 0.0
+        self.mood = "yaklas"
+
+    def think(self, dt: float) -> None:
+        me = self.b.b if self.b.b.id == BOT_ID else self.b.a
+        foe = self.b.other(me)
+        if not me.alive or not foe.alive:
+            me.input = {"mx": 0, "mz": 0, "atk": False, "blk": False, "dash": False}
+            return
+        self.cool -= dt
+        dx, dz = foe.x - me.x, foe.z - me.z
+        dist = math.hypot(dx, dz) or 0.001
+        ux, uz = dx / dist, dz / dist
+
+        if self.cool <= 0:               # tepki süresi dolunca yeni karar
+            self.cool = self.reaction
+            if me.stamina < 30:
+                self.mood = "cekil"
+            elif dist <= REACH * 0.9:
+                self.mood = "vur" if self.b.rng.random() > 0.25 else "blok"
+            else:
+                self.mood = "yaklas"
+
+        inp = {"mx": 0.0, "mz": 0.0, "atk": False, "blk": False, "dash": False}
+        if self.mood == "yaklas":
+            inp["mx"], inp["mz"] = ux, uz
+        elif self.mood == "cekil":
+            inp["mx"], inp["mz"] = -ux, -uz
+            inp["blk"] = True
+        elif self.mood == "blok":
+            inp["blk"] = True
+        elif self.mood == "vur":
+            if dist > REACH * 0.85:
+                inp["mx"], inp["mz"] = ux, uz
+            else:
+                inp["atk"] = True
+        me.input = inp
+        me.yaw = math.atan2(dx, dz)      # her zaman oyuncuya dönük
+
+
+# ---------------------------------------------------------------------------
 # SONUÇ (bot ekonomisine yazar)
 # ---------------------------------------------------------------------------
 
@@ -358,6 +435,13 @@ def settle(battle: Battle) -> dict:
     a, b = battle.a, battle.b
     stake = battle.stake
     result = {"winner": battle.winner, "stake": stake, "prize": 0}
+    if battle.training:
+        # Antrenman: coin/istatistik/sezon puanı YOK (yoksa botu yenerek çiftlik kurulur).
+        # Sadece küçük bir tecrübe verilir ki tamamen boş olmasın.
+        human = a.id if a.id > 0 else b.id
+        economy.add_xp(human, 12)
+        result["training"] = True
+        return result
     if battle.winner == 0:
         for f in (a, b):
             if stake:
